@@ -269,16 +269,13 @@ local DefaultSettings = {
 	},
 	AutoParry = {
 		Enabled = true,
-		InputMethod = "Remotes",
+		InputMethod = "KeyEvents",
 		AutoFeint = false,
-		DelayM1 = false,
-		HoldM1 = false,
 		IfLookingAtEnemy = false,
 		EnemyLookingAtYou = false,
 		LocalAttackAutoParry = false,
 		ShouldRollCancel = false,
 		RollOnFeints = false,
-		BlatantRoll = false,
 		PingAdjust = 25,
 		AdjustTimingsBySlider = 0,
 		AdjustDistancesBySlider = 0,
@@ -323,7 +320,7 @@ local LoggerObject = Logger:New()
 local EffectReplicator = EffectReplication:New()
 
 function Pascal:GetConfigurationPath()
-	return "PascalCase/DeepwokenDev"
+	return "PascalCase/Deepwoken"
 end
 
 function Pascal:GetBuilderSettingFromIdentifier(Identifier)
@@ -3433,15 +3430,6 @@ function CombatTab:AutoParryGroup()
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
 			Pascal:GetConfig().AutoParry.RollOnFeints = Value
-		end,
-	})
-
-	SubTab3:AddToggle("EnableBlatantRoll", {
-		Text = "Blatant roll",
-		Default = false, -- Default value (true / false)
-		Tooltip = "Blatant roll calls the remote directly without doing roll checks, this makes you roll in place. This will call remotes if you are using KeyEvents.",
-		Callback = function(Value)
-			Pascal:GetConfig().AutoParry.BlatantRoll = Value
 		end,
 	})
 

@@ -51,16 +51,13 @@ local DefaultSettings = {
 	},
 	AutoParry = {
 		Enabled = true,
-		InputMethod = "Remotes",
+		InputMethod = "KeyEvents",
 		AutoFeint = false,
-		DelayM1 = false,
-		HoldM1 = false,
 		IfLookingAtEnemy = false,
 		EnemyLookingAtYou = false,
 		LocalAttackAutoParry = false,
 		ShouldRollCancel = false,
 		RollOnFeints = false,
-		BlatantRoll = false,
 		PingAdjust = 25,
 		AdjustTimingsBySlider = 0,
 		AdjustDistancesBySlider = 0,
@@ -105,7 +102,7 @@ local LoggerObject = Logger:New()
 local EffectReplicator = EffectReplication:New()
 
 function Pascal:GetConfigurationPath()
-	return "PascalCase/DeepwokenDev"
+	return "PascalCase/Deepwoken"
 end
 
 function Pascal:GetBuilderSettingFromIdentifier(Identifier)

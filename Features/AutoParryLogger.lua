@@ -91,12 +91,18 @@ function AutoParryLogger:CacheAnimations()
 end
 
 function AutoParryLogger:OnAnimationPlayed(Entity, HumanoidRootPart, LocalPlayerData, AnimationTrack)
-	if not AnimationTrack.Animation or not HumanoidRootPart or not LocalPlayerData or not LocalPlayerData.HumanoidRootPart then
+	if
+		not AnimationTrack.Animation
+		or not HumanoidRootPart
+		or not LocalPlayerData
+		or not LocalPlayerData.HumanoidRootPart
+	then
 		return
 	end
 
 	local AnimationId = AnimationTrack.Animation.AnimationId
-	local AnimationName = AutoParryLogger.CachedAnimations[AnimationId] and AutoParryLogger.CachedAnimations[AnimationId].Name
+	local AnimationName = AutoParryLogger.CachedAnimations[AnimationId]
+			and AutoParryLogger.CachedAnimations[AnimationId].Name
 		or AnimationTrack.Name
 
 	if AutoParryLogger:IsAnimationNameBlacklistedByDefault(AnimationName) then
@@ -105,8 +111,8 @@ function AutoParryLogger:OnAnimationPlayed(Entity, HumanoidRootPart, LocalPlayer
 
 	if not AutoParryLogger.IsDistanceOkBetweenParts(HumanoidRootPart, LocalPlayerData.HumanoidRootPart) then
 		return
-	end 
-	
+	end
+
 	Library:AddAnimationDataToInfoLogger(
 		Entity.Name,
 		AnimationId,

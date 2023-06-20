@@ -476,15 +476,6 @@ function CombatTab:AutoParryGroup()
 		end,
 	})
 
-	SubTab3:AddToggle("EnableBlatantRoll", {
-		Text = "Blatant roll",
-		Default = false, -- Default value (true / false)
-		Tooltip = "Blatant roll calls the remote directly without doing roll checks, this makes you roll in place. This will call remotes if you are using KeyEvents.",
-		Callback = function(Value)
-			Pascal:GetConfig().AutoParry.BlatantRoll = Value
-		end,
-	})
-
 	SubTab3:AddSlider("RollCancelDelay", {
 		Text = "Roll-cancel delay",
 		Default = 0,
