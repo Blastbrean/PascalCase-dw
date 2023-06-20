@@ -1,10 +1,10 @@
 # Script
-Click [here](https://github.com/retarded-person/PascalCase/tree/main) for the main script loader...
+Removed from the main-script loader...
 
 # PascalCase (Deepwoken)
 <i>Free and open-source script for [Deepwoken](https://www.roblox.com/games/10138901829/MANTRAS-Deepwoken-Dev)</i>
 
-Safety is not guaranteed. You will very possibly get banned using this script.
+This script is patched and will ban you.
 
 Report issues to our discord server: https://discord.gg/J93MDwH5
 
