@@ -90,13 +90,17 @@ function AutoParryLogger:CacheAnimations()
 	AutoParryLogger.HasCachedAnimations = true
 end
 
-function AutoParryLogger:OnAnimationPlayed(Entity, HumanoidRootPart, LocalPlayerData, AnimationTrack)
+function AutoParryLogger:OnAnimationPlayed(Player, Entity, HumanoidRootPart, LocalPlayerData, AnimationTrack)
 	if
 		not AnimationTrack.Animation
 		or not HumanoidRootPart
 		or not LocalPlayerData
 		or not LocalPlayerData.HumanoidRootPart
 	then
+		return
+	end
+
+	if Player and Player == LocalPlayerData.Player and not Pascal:GetConfig().AutoParryLogging.LogYourself then
 		return
 	end
 

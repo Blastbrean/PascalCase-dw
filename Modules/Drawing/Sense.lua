@@ -713,21 +713,26 @@ function EspInterface.getWeapon(player)
 		return "None"
 	end
 
-	local weapontool = findFirstChild(character, "Weapon")
-	if not weapontool then
+	local weaponTool = findFirstChild(character, "Weapon")
+	if not weaponTool then
 		return "None"
 	end
 
-	local weaponnamestringvalue = findFirstChild(weapontool, "Weapon")
-	if not weaponnamestringvalue then
+	local weaponNameStringValue = findFirstChild(weaponTool, "Weapon")
+	if not weaponNameStringValue then
 		return "None"
 	end
 
-	return weaponnamestringvalue.Value
+	return weaponNameStringValue.Value
 end
 
+local friendlyCache = {}
 function EspInterface.isFriendly(player)
-	return player.Team and player.Team == localPlayer.Team
+	if not friendlyCache[player] then
+		friendlyCache[player] = player:IsFriendsWith(localPlayer.UserId)
+	end
+
+	return friendlyCache[player]
 end
 
 function EspInterface.getTeamColor(player)

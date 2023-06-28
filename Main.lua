@@ -19,7 +19,6 @@ local Event = require("Modules/Helpers/Event")
 local Thread = require("Modules/Helpers/Thread")
 local Pascal = require("Modules/Helpers/Pascal")
 local Helper = require("Modules/Helpers/Helper")
-local Movement = require("Features/Movement")
 local Menu = require("UI/Menu")
 
 -- Hooking
@@ -30,16 +29,12 @@ local EntityFolder = Workspace:WaitForChild("Live")
 
 -- Events
 local RenderEvent = require("Events/RenderEvent")
-local PhysicsEvent = require("Events/PhysicsEvent")
 local EntityHandler = require("Events/EntityHandler")
-local JumpRequest = require("Events/JumpRequest")
 
 -- Create logger, thread, and event.
 local MainThread = Thread:New()
 local RenderEventObject = Event:New(RunService.RenderStepped)
-local PhysicsEventObject = Event:New(RunService.Stepped)
 local EntityHandlerObject = Event:New(EntityFolder.ChildAdded)
-local JumpRequestObject = Event:New(UserInputService.JumpRequest)
 
 local function StartDetachFn()
 	Helper.TryAndCatch(
@@ -57,16 +52,11 @@ local function StartDetachFn()
 			-- Remove events...
 			RenderEventObject:Disconnect()
 			EntityHandlerObject:Disconnect()
-			PhysicsEventObject:Disconnect()
-			JumpRequestObject:Disconnect()
 
 			-- Special disconnect (see EventHandler)...
 			if EntityHandler.DisconnectAutoParry then
 				EntityHandler.DisconnectAutoParry()
 			end
-
-			-- Reset movement related stuff...
-			Movement:ResetNoclipFn()
 
 			-- Disconnect stuff...
 			Pascal:GetEffectReplicator():Disconnect()
@@ -112,9 +102,7 @@ local function MainThreadFn()
 
 			-- Connect all events...
 			RenderEventObject:Connect(RenderEvent.CallbackFn)
-			PhysicsEventObject:Connect(PhysicsEvent.CallbackFn)
 			EntityHandlerObject:Connect(EntityHandler.CallbackFn)
-			JumpRequestObject:Connect(JumpRequest.CallbackFn)
 
 			-- EntityHandler is a special event...
 			-- We should call the CallbackFn with our current entities...

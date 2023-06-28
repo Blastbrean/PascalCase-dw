@@ -9,6 +9,7 @@ function Event:Connect(Function)
 		self:Disconnect()
 	end
 
+	-- Connect
 	self.Connection = self.RobloxEvent and self.RobloxEvent:Connect(Function) or nil
 end
 
@@ -17,6 +18,7 @@ function Event:Disconnect()
 		return
 	end
 
+	-- Disconnect connection
 	self.Connection:Disconnect()
 end
 

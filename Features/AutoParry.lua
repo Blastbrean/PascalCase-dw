@@ -4,11 +4,11 @@ local AutoParry = {
 	Connections = {},
 	PlayerFeint = {},
 	CanLocalPlayerFeint = true,
+	TimeWhenOutOfRange = nil,
 }
 
 -- Services
 local Players = GetService("Players")
-local VirtualInputManagerService = GetService("VirtualInputManager")
 local WorkspaceService = GetService("Workspace")
 local StatsService = GetService("Stats")
 
@@ -17,19 +17,9 @@ local Helper = require("Modules/Helpers/Helper")
 local Pascal = require("Modules/Helpers/Pascal")
 local AutoParryLogger = require("Features/AutoParryLogger")
 
--- Simulate what a keyboard would do when pressing a key using VirtualInputManager:SendKeyEvent
-function AutoParry.SimulateKeyFromKeyEvents(KeyCode)
+function AutoParry.SimulateKeyFromKeyPress(KeyCode)
 	-- Send key event
-	VirtualInputManagerService:SendKeyEvent(true, KeyCode, false, nil)
-
-	-- Data by key press tool which will time key presses
-	local KeyPressDelay = math.random(0.045, 0.087)
-
-	-- Delay script before sending another
-	task.wait(KeyPressDelay)
-
-	-- Send key event to unpress key
-	VirtualInputManagerService:SendKeyEvent(false, KeyCode, false, nil)
+	Pascal:GetMethods().KeyPress(KeyCode)
 end
 
 function AutoParry.CheckDistanceBetweenParts(BuilderData, Part1, Part2)
@@ -45,8 +35,8 @@ function AutoParry.CheckDistanceBetweenParts(BuilderData, Part1, Part2)
 	local Distance = (Part1Position - Part2Position).Magnitude
 
 	local DistanceAdjust = (Pascal:GetConfig().AutoParry.AdjustDistancesBySlider or 0)
-	local MinimumDistance = math.max(BuilderData.MinimumDistance, 0)
-	local MaximumDistance = math.max(BuilderData.MaximumDistance + DistanceAdjust, 0)
+	local MinimumDistance = Pascal:GetMethods().Max(BuilderData.MinimumDistance, 0)
+	local MaximumDistance = Pascal:GetMethods().Max(BuilderData.MaximumDistance + DistanceAdjust, 0)
 	return Distance >= MinimumDistance and Distance <= MaximumDistance
 end
 
@@ -68,29 +58,25 @@ function AutoParry.HasTalent(Entity, TalentString)
 end
 
 function AutoParry.RunFeintFn(LocalPlayerData)
-	if Pascal:GetConfig().AutoParry.InputMethod == "KeyEvents" then
-		-- Get mouse...
-		local Mouse = LocalPlayerData.Player:GetMouse()
-
+	if Pascal:GetConfig().AutoParry.InputMethod == "KeyPress" then
 		-- Send mouse event
-		VirtualInputManagerService:SendMouseButtonEvent(Mouse.X, Mouse.Y, 1, true, nil, 0)
+		Pascal:GetMethods().Mouse2Press()
 
 		-- Data by mouse press tool which will time mouse presses
-		local MousePressDelay = math.random(0.026, 0.095)
+		local MousePressDelay = Pascal:GetMethods().Random(0.026, 0.095)
 
 		-- Delay script before sending another
-		task.wait(MousePressDelay)
+		Pascal:GetMethods().Wait(MousePressDelay)
 
 		-- Send mouse event to unpress key
-		VirtualInputManagerService:SendKeyEvent(Mouse.X, Mouse.Y, 1, false, nil, 0)
-		return
+		Pascal:GetMethods().Mouse2Release()
 	end
 end
 
 function AutoParry.RunDodgeFn(Entity, ShouldRollCancel, RollCancelDelay)
-	if Pascal:GetConfig().AutoParry.InputMethod == "KeyEvents" then
+	if Pascal:GetConfig().AutoParry.InputMethod == "KeyPress" then
 		-- Run event to roll...
-		AutoParry.SimulateKeyFromKeyEvents(Enum.KeyCode.Q)
+		AutoParry.SimulateKeyFromKeyPress(0x51)
 
 		-- Check if we should roll cancel...
 		if ShouldRollCancel then
@@ -100,36 +86,26 @@ function AutoParry.RunDodgeFn(Entity, ShouldRollCancel, RollCancelDelay)
 			-- Notify user...
 			Library:Notify(
 				string.format("Delaying on roll-cancel for %.3f seconds...", AttemptMilisecondsConvertedToSeconds),
-				3.0
+				2.0
 			)
 
-			-- Delay for the roll-cancel...
-			task.wait(RollCancelDelay)
-
-			-- Effect handling...
-			local EffectReplicator = Pascal:GetEffectReplicator()
-
-			-- Check if we are still rolling...
-			if not EffectReplicator:FindEffect("Dodged") then
-				-- Notify user it has failed...
-				Library:Notify("Failed roll-cancel due to not being in roll-state...", 3.0)
-				return
-			end
+			-- Delay script before sending another
+			Pascal:GetMethods().Wait(AttemptMilisecondsConvertedToSeconds)
 
 			-- Send mouse event to cancel roll...
-			VirtualInputManagerService:SendMouseButtonEvent(Mouse.X, Mouse.Y, 1, true, nil, 0)
+			Pascal:GetMethods().Mouse2Press()
 
 			-- Data by mouse press tool which will time mouse presses
-			local MousePressDelay = math.random(0.026, 0.095)
+			local MousePressDelay = Pascal:GetMethods().Random(0.026, 0.095)
 
 			-- Delay script before sending another
-			task.wait(MousePressDelay)
+			Pascal:GetMethods().Wait(MousePressDelay)
 
 			-- Send mouse event to unpress key
-			VirtualInputManagerService:SendKeyEvent(Mouse.X, Mouse.Y, 1, false, nil, 0)
+			Pascal:GetMethods().Mouse2Release()
 
 			-- End with notification
-			Library:Notify("Successfully roll-cancelled...", 3.0)
+			Library:Notify("Successfully roll-cancelled...", 2.0)
 		end
 
 		return
@@ -137,24 +113,58 @@ function AutoParry.RunDodgeFn(Entity, ShouldRollCancel, RollCancelDelay)
 end
 
 function AutoParry.StartBlockFn()
-	if Pascal:GetConfig().AutoParry.InputMethod == "KeyEvents" then
+	if Pascal:GetConfig().AutoParry.InputMethod == "KeyPress" then
 		-- Send key event
-		VirtualInputManagerService:SendKeyEvent(true, Enum.KeyCode.F, false, nil)
+		Pascal:GetMethods().KeyPress(0x46)
 		return
 	end
 end
 
 function AutoParry.EndBlockFn()
-	if Pascal:GetConfig().AutoParry.InputMethod == "KeyEvents" then
+	if Pascal:GetConfig().AutoParry.InputMethod == "KeyPress" then
 		-- Send key event to unpress key
-		VirtualInputManagerService:SendKeyEvent(false, Enum.KeyCode.F, false, nil)
+		Pascal:GetMethods().KeyRelease(0x46)
 		return
 	end
 end
 
+function AutoParry.BlockUntilBlockState()
+	local EffectReplicator = Pascal:GetEffectReplicator()
+
+	-- Block until actually blocking
+	while Pascal:GetMethods().Wait() do
+		-- Make sure we can actually get the LocalPlayer's data
+		local LocalPlayerData = Helper.GetLocalPlayerWithData()
+		if not LocalPlayerData then
+			return
+		end
+
+		-- Check for the CharacterHandler & InputClient & Requests
+		local CharacterHandler = LocalPlayerData.Character:FindFirstChild("CharacterHandler")
+		if not CharacterHandler or not CharacterHandler:FindFirstChild("InputClient") then
+			return
+		end
+
+		if not EffectReplicator:FindEffect("Action") and not EffectReplicator:FindEffect("Knocked") then
+			AutoParry.SimulateKeyFromKeyPress(0x46)
+		end
+
+		if EffectReplicator:FindEffect("Blocking") then
+			break
+		end
+	end
+end
+
 function AutoParry.RunParryFn()
-	if Pascal:GetConfig().AutoParry.InputMethod == "KeyEvents" then
-		AutoParry.SimulateKeyFromKeyEvents(Enum.KeyCode.F)
+	if Pascal:GetConfig().AutoParry.InputMethod == "KeyPress" then
+		-- Key press (InputClient -> On F Pressed)
+		Pascal:GetMethods().KeyPress(0x46)
+
+		-- Key hold until block state (InputClient -> On F Pressed)
+		AutoParry.BlockUntilBlockState()
+
+		-- Key release (InputClient -> On F Release)
+		Pascal:GetMethods().KeyRelease(0x46)
 		return
 	end
 end
@@ -238,15 +248,59 @@ function AutoParry.CheckFacingThresholdOnPlayers(LocalPlayerData, HumanoidRootPa
 	return true
 end
 
-function AutoParry.ValidateState(AnimationTrack, BuilderData, LocalPlayerData, HumanoidRootPart, Player, AfterDelay)
+function AutoParry.ValidateState(
+	AnimationTrack,
+	BuilderData,
+	LocalPlayerData,
+	HumanoidRootPart,
+	Humanoid,
+	Player,
+	SkipCheckForAttacking,
+	AfterDelay,
+	FirstTime
+)
 	-- Only do this if there is a valid humanoid-root-part...
 	if HumanoidRootPart and LocalPlayerData.HumanoidRootPart then
 		-- Check animation distance
 		if
 			not AutoParry.CheckDistanceBetweenParts(BuilderData, HumanoidRootPart, LocalPlayerData.HumanoidRootPart)
 			and Player ~= LocalPlayerData.Player
+			and not BuilderData.DelayUntilInRange
 		then
 			return false
+		end
+
+		-- Part1, Part2
+		local Part1 = HumanoidRootPart
+		local Part2 = LocalPlayerData.HumanoidRootPart
+
+		-- Nullify out the height in our calculations
+		local Part1Position = Vector3.new(Part1.Position.X, 0.0, Part1.Position.Z)
+		local Part2Position = Vector3.new(Part2.Position.X, 0.0, Part2.Position.Z)
+
+		-- Get distance
+		local Distance = (Part1Position - Part2Position).Magnitude
+
+		-- Check if we have DelayUntilInRange enabled...
+		-- Make sure the distance from isn't too far away aswell...
+		if
+			Player ~= LocalPlayerData.Player
+			and BuilderData.DelayUntilInRange
+			and not AutoParry.CheckDistanceBetweenParts(BuilderData, HumanoidRootPart, LocalPlayerData.HumanoidRootPart)
+			and Distance <= Pascal:GetConfig().AutoParry.DistanceThresholdInRange
+		then
+			-- Notify user that we have triggered delay until in range
+			Library:Notify("Player went out of range, delaying until in range...", 2.0)
+
+			-- Save time to account for delay later...
+			AutoParry.TimeWhenOutOfRange = Pascal:GetMethods().ExecutionClock()
+
+			repeat
+				Pascal:GetMethods().Wait()
+			until AutoParry.CheckDistanceBetweenParts(BuilderData, HumanoidRootPart, LocalPlayerData.HumanoidRootPart)
+
+			-- Resume...
+			Library:Notify("Back in range, resuming auto-parry...", 2.0)
 		end
 
 		-- Check if players are facing each-other
@@ -256,6 +310,16 @@ function AutoParry.ValidateState(AnimationTrack, BuilderData, LocalPlayerData, H
 		then
 			return false
 		end
+	end
+
+	if not Humanoid or Humanoid.Health <= 0 then
+		return false
+	end
+
+	if not Pascal:GetMethods().IsWindowActive() then
+		-- Notify user that we cannot run auto-parry
+		Library:Notify("Cannot run auto-parry, the window is not active...", 2.0)
+		return false
 	end
 
 	-- Effect handling...
@@ -268,7 +332,8 @@ function AutoParry.ValidateState(AnimationTrack, BuilderData, LocalPlayerData, H
 	local CurrentlyInAction = EffectReplicator:FindEffect("Action") or EffectReplicator:FindEffect("MobileAction")
 
 	if
-		not Pascal:GetConfig().AutoParry.AutoFeint
+		not SkipCheckForAttacking
+		and not Pascal:GetConfig().AutoParry.AutoFeint
 		and not AutoParry.CanLocalPlayerFeint
 		and (InsideOfAttack or CurrentlyInAction)
 		and Player ~= LocalPlayerData.Player
@@ -342,18 +407,42 @@ function AutoParry.DelayAndValidateStateFn(
 	BuilderData,
 	LocalPlayerData,
 	HumanoidRootPart,
-	Player
+	Humanoid,
+	Player,
+	SkipCheckForAttacking
 )
 	-- Make sure we are valid...
-	if not AutoParry.ValidateState(AnimationTrack, BuilderData, LocalPlayerData, HumanoidRootPart, Player, false) then
+	if
+		not AutoParry.ValidateState(
+			AnimationTrack,
+			BuilderData,
+			LocalPlayerData,
+			HumanoidRootPart,
+			Humanoid,
+			Player,
+			SkipCheckForAttacking,
+			false
+		)
+	then
 		return false
 	end
 
 	-- Wait the delay out...
-	task.wait(DelayInSeconds)
+	Pascal:GetMethods().Wait(DelayInSeconds)
 
 	-- Make sure we are still valid...
-	if not AutoParry.ValidateState(AnimationTrack, BuilderData, LocalPlayerData, HumanoidRootPart, Player, true) then
+	if
+		not AutoParry.ValidateState(
+			AnimationTrack,
+			BuilderData,
+			LocalPlayerData,
+			HumanoidRootPart,
+			Humanoid,
+			Player,
+			SkipCheckForAttacking,
+			true
+		)
+	then
 		return false
 	end
 
@@ -433,11 +522,22 @@ function AutoParry:GetBuilderData(AnimationId)
 end
 
 function AutoParry:OnAnimationEnded(EntityData)
+	-- Handle activate on end for auto parry
+	AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid, true)
+
 	-- Handle block states for player data
 	AutoParry.EndBlockingStates(EntityData)
 end
 
-function AutoParry:OnAnimationPlayed(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart)
+function AutoParry:MainAutoParry(
+	EntityData,
+	AnimationTrack,
+	Animation,
+	Player,
+	HumanoidRootPart,
+	Humanoid,
+	IsEndAnimation
+)
 	if not HumanoidRootPart then
 		return
 	end
@@ -479,86 +579,136 @@ function AutoParry:OnAnimationPlayed(EntityData, AnimationTrack, Animation, Play
 		return
 	end
 
+	-- Check if we have activate on end on...
+	if BuilderData.ActivateOnEnd and not IsEndAnimation then
+		return
+	end
+
 	-- Validate current auto-parry state is OK
-	if not AutoParry.ValidateState(AnimationTrack, BuilderData, LocalPlayerData, HumanoidRootPart, Player, false) then
+	if
+		not AutoParry.ValidateState(
+			AnimationTrack,
+			BuilderData,
+			LocalPlayerData,
+			HumanoidRootPart,
+			Humanoid,
+			Player,
+			false,
+			false,
+			true
+		)
+	then
 		return
 	end
 
 	-- Randomize seed according to the timestamp (ms)
-	math.randomseed(DateTime.now().UnixTimestampMillis)
+	Pascal:GetMethods().RandomSeed(DateTime.now().UnixTimestampMillis)
 
 	-- Check hitchance
-	if math.random(0, 100) > Pascal:GetConfig().AutoParry.Hitchance then
+	if Pascal:GetMethods().Random(0.0, 100.0) > Pascal:GetConfig().AutoParry.Hitchance then
 		return
 	end
 
 	-- Calculate delay(s)
-	local AttemptMilisecondsConvertedToSeconds = tonumber(BuilderData.AttemptDelay)
-			and tonumber(BuilderData.AttemptDelay) / 1000
-		or 0
+	local function CalculateCurrentDelay()
+		local OutOfRangeAccountFor = AutoParry.TimeWhenOutOfRange
+				and Pascal:GetMethods().Max(Pascal:GetMethods().ExecutionClock() - AutoParry.TimeWhenOutOfRange, 0.0)
+			or 0.0
 
-	local RepeatMilisecondsConvertedToSeconds = tonumber(BuilderData.ParryRepeatDelay)
-			and tonumber(BuilderData.ParryRepeatDelay) / 1000
-		or 0
+		local AttemptMilisecondsConvertedToSeconds = Pascal:GetMethods().ToNumber(BuilderData.AttemptDelay)
+				and Pascal:GetMethods().ToNumber(BuilderData.AttemptDelay) / 1000
+			or 0
 
-	-- Delay(s) accounting for global delay
-	AttemptMilisecondsConvertedToSeconds = AttemptMilisecondsConvertedToSeconds
-		+ ((Pascal:GetConfig().AutoParry.AdjustTimingsBySlider / 1000) or 0)
+		local RepeatMilisecondsConvertedToSeconds = Pascal:GetMethods().ToNumber(BuilderData.ParryRepeatDelay)
+				and Pascal:GetMethods().ToNumber(BuilderData.ParryRepeatDelay) / 1000
+			or 0
 
-	RepeatMilisecondsConvertedToSeconds = RepeatMilisecondsConvertedToSeconds
-		+ ((Pascal:GetConfig().AutoParry.AdjustTimingsBySlider / 1000) or 0)
+		-- Delay(s) accounting for out of range time...
+		AttemptMilisecondsConvertedToSeconds = AttemptMilisecondsConvertedToSeconds - OutOfRangeAccountFor
+		RepeatMilisecondsConvertedToSeconds = RepeatMilisecondsConvertedToSeconds - OutOfRangeAccountFor
 
-	-- Ping converted to two decimal places...
-	local PingAdjustmentAmount = math.max(StatsService.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000, 0.0)
-		* math.clamp(((Pascal:GetConfig().AutoParry.PingAdjust or 0) / 100), 0.0, 1.0)
+		-- Delay(s) accounting for global delay...
+		AttemptMilisecondsConvertedToSeconds = AttemptMilisecondsConvertedToSeconds
+			+ ((Pascal:GetConfig().AutoParry.AdjustTimingsBySlider / 1000) or 0)
 
-	local RepeatDelayAccountingForPingAdjustment =
-		math.max(RepeatMilisecondsConvertedToSeconds - PingAdjustmentAmount, 0.0)
+		RepeatMilisecondsConvertedToSeconds = RepeatMilisecondsConvertedToSeconds
+			+ ((Pascal:GetConfig().AutoParry.AdjustTimingsBySlider / 1000) or 0)
 
-	local AttemptDelayAccountingForPingAdjustment =
-		math.max(AttemptMilisecondsConvertedToSeconds - PingAdjustmentAmount, 0.0)
+		-- Ping converted to two decimal places...
+		local PingAdjustmentAmount = Pascal:GetMethods()
+			.Max(StatsService.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000, 0.0) * Pascal:GetMethods().Clamp(
+			((Pascal:GetConfig().AutoParry.PingAdjust or 0) / 100),
+			0.0,
+			1.0
+		)
+
+		local RepeatDelayAccountingForPingAdjustment = Pascal:GetMethods()
+			.Max(RepeatMilisecondsConvertedToSeconds - PingAdjustmentAmount, 0.0)
+
+		local AttemptDelayAccountingForPingAdjustment =
+			Pascal:GetMethods().Max(AttemptMilisecondsConvertedToSeconds - PingAdjustmentAmount, 0.0)
+
+		return {
+			AttemptDelay = AttemptDelayAccountingForPingAdjustment,
+			RepeatDelay = RepeatDelayAccountingForPingAdjustment,
+		}
+	end
 
 	-- Notify user that animation has started
-	Library:Notify(
-		string.format(
-			"Delaying on animation %s(%s) for %.3f seconds",
-			BuilderData.NickName,
-			BuilderData.AnimationId,
-			AttemptDelayAccountingForPingAdjustment
-		),
-		2.0
-	)
+	if not IsEndAnimation then
+		-- Get delay
+		local CurrentDelay = CalculateCurrentDelay()
 
-	-- Wait for delay to occur
-	local DelayResult = AutoParry.DelayAndValidateStateFn(
-		AttemptDelayAccountingForPingAdjustment,
-		AnimationTrack,
-		BuilderData,
-		LocalPlayerData,
-		HumanoidRootPart,
-		Player
-	)
-
-	if not DelayResult then
-		-- Notify user that delay has failed
+		-- Notify
 		Library:Notify(
 			string.format(
-				"Failed delay on animation %s(%s) due to state validation",
+				"Delaying on animation %s(%s) for %.3f seconds",
 				BuilderData.NickName,
-				BuilderData.AnimationId
+				BuilderData.AnimationId,
+				CurrentDelay.AttemptDelay
 			),
 			2.0
 		)
 
-		return
+		-- Wait for delay to occur
+		local DelayResult = AutoParry.DelayAndValidateStateFn(
+			CurrentDelay.AttemptDelay,
+			AnimationTrack,
+			BuilderData,
+			LocalPlayerData,
+			HumanoidRootPart,
+			Humanoid,
+			Player,
+			false
+		)
+
+		if not DelayResult then
+			-- Notify user that delay has failed
+			Library:Notify(
+				string.format(
+					"Failed delay on animation %s(%s) due to state validation",
+					BuilderData.NickName,
+					BuilderData.AnimationId
+				),
+				2.0
+			)
+
+			return
+		end
 	end
 
-	-- Handle auto-parry repeats
-	if BuilderData.ParryRepeat and not BuilderData.ShouldBlock and not BuilderData.ShouldRoll then
-		local RepeatDelayResult = nil
+	if
+		BuilderData.ParryRepeat
+		and not BuilderData.ShouldBlock
+		and not BuilderData.ShouldRoll
+		and BuilderData.ParryRepeatAnimationEnds
+	then
+		local RepeatIndex = 0
 
-		-- Loop how many times we need to repeat...
-		for RepeatIndex = 0, (BuilderData.ParryRepeatTimes or 0) do
+		repeat
+			-- Get delay
+			local CurrentDelay = CalculateCurrentDelay()
+
 			-- Parry
 			AutoParry.RunParryFn()
 
@@ -570,23 +720,87 @@ function AutoParry:OnAnimationPlayed(EntityData, AnimationTrack, Animation, Play
 					BuilderData.NickName,
 					BuilderData.AnimationId,
 					RepeatDelayResult and "repeat-delay" or "delay",
-					RepeatDelayResult and RepeatDelayAccountingForPingAdjustment
-						or AttemptDelayAccountingForPingAdjustment
+					RepeatDelayResult and CurrentDelay.RepeatDelay or CurrentDelay.AttemptDelay
 				),
 				2.0
 			)
 
 			-- Wait for delay to occur
 			RepeatDelayResult = AutoParry.DelayAndValidateStateFn(
-				RepeatDelayAccountingForPingAdjustment,
+				CurrentDelay.RepeatDelay,
 				AnimationTrack,
 				BuilderData,
 				LocalPlayerData,
 				HumanoidRootPart,
-				Player
+				Humanoid,
+				Player,
+				true
 			)
 
-			if not RepeatDelayResult then
+			if not RepeatDelayResult and not IsEndAnimation then
+				-- Notify user that delay has failed
+				Library:Notify(
+					string.format(
+						"Failed delay on animation %s(%s) due to state validation",
+						BuilderData.NickName,
+						BuilderData.AnimationId
+					),
+					2.0
+				)
+
+				return
+			end
+
+			-- Increment index
+			RepeatIndex = RepeatIndex + 1
+		until not AnimationTrack.IsPlaying
+
+		return
+	end
+
+	-- Handle auto-parry repeats
+	if
+		BuilderData.ParryRepeat
+		and not BuilderData.ShouldBlock
+		and not BuilderData.ShouldRoll
+		and not BuilderData.ParryRepeatAnimationEnds
+	then
+		local RepeatDelayResult = nil
+
+		-- Loop how many times we need to repeat...
+		for RepeatIndex = 0, (BuilderData.ParryRepeatTimes or 0) do
+			-- Get delay
+			local CurrentDelay = CalculateCurrentDelay()
+
+			-- Parry
+			AutoParry.RunParryFn()
+
+			-- Notify user that animation has repeated
+			Library:Notify(
+				string.format(
+					"(%i) Activated on animation %s(%s) (%s: %.3f seconds)",
+					RepeatIndex,
+					BuilderData.NickName,
+					BuilderData.AnimationId,
+					RepeatDelayResult and "repeat-delay" or "delay",
+					RepeatDelayResult and CurrentDelay.RepeatDelay or CurrentDelay.AttemptDelay
+				),
+				2.0
+			)
+
+			-- Wait for delay to occur
+			RepeatDelayResult = AutoParry.DelayAndValidateStateFn(
+				CurrentDelay.RepeatDelay,
+				AnimationTrack,
+				BuilderData,
+				LocalPlayerData,
+				HumanoidRootPart,
+				Humanoid,
+				Player,
+				true
+			)
+
+			if not RepeatDelayResult and not IsEndAnimation then
 				-- Notify user that delay has failed
 				Library:Notify(
 					string.format(
@@ -640,7 +854,7 @@ function AutoParry:OnAnimationPlayed(EntityData, AnimationTrack, Animation, Play
 
 	-- Handle dodging
 	if BuilderData.ShouldRoll then
-		-- Start dodging
+		-- Start dodging...
 		AutoParry.RunDodgeFn(
 			Entity,
 			Pascal:GetConfig().AutoParry.ShouldRollCancel,
@@ -653,6 +867,10 @@ function AutoParry:OnAnimationPlayed(EntityData, AnimationTrack, Animation, Play
 		-- Return...
 		return
 	end
+end
+
+function AutoParry:OnAnimationPlayed(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid)
+	AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid, false)
 end
 
 function AutoParry.OnPlayerFeint(LocalPlayerData, HumanoidRootPart, Player)
@@ -726,7 +944,26 @@ function AutoParry.Disconnect()
 	end)
 end
 
+function AutoParry.FindSound(HumanoidRootPart, Name)
+	local SoundFromHumanoidRootPart = HumanoidRootPart:FindFirstChild(Name)
+	if SoundFromHumanoidRootPart then
+		return SoundFromHumanoidRootPart
+	end
+
+	local SoundsFolder = HumanoidRootPart:FindFirstChild("Sounds")
+	if not SoundsFolder then
+		return nil
+	end
+
+	return SoundsFolder:FindFirstChild(Name)
+end
+
 function AutoParry:OnEntityAdded(Entity)
+	local EntityData = AutoParry:EmplaceEntityToData(Entity)
+	if not EntityData then
+		return
+	end
+
 	local Humanoid = Entity:WaitForChild("Humanoid")
 	if not Humanoid then
 		return
@@ -742,59 +979,72 @@ function AutoParry:OnEntityAdded(Entity)
 		return
 	end
 
-	local EntityData = AutoParry:EmplaceEntityToData(Entity)
-	if not EntityData then
-		return
-	end
-
 	-- If this is the local-player, connect special event(s)...
 	local Player = Players:GetPlayerFromCharacter(Entity)
 	if Player == Players.LocalPlayer then
-		HumanoidRootPart:WaitForChild("Swing1").Played:Connect(AutoParry.OnLocalPlayerSwingSound)
-		HumanoidRootPart:WaitForChild("Swing2").Played:Connect(AutoParry.OnLocalPlayerSwingSound)
-		HumanoidRootPart:WaitForChild("Swing1").Ended:Connect(AutoParry.OnLocalPlayerSwingSoundEnd)
-		HumanoidRootPart:WaitForChild("Swing2").Ended:Connect(AutoParry.OnLocalPlayerSwingSoundEnd)
+		local Swing1 = AutoParry.FindSound(HumanoidRootPart, "Swing1")
+		local Swing2 = AutoParry.FindSound(HumanoidRootPart, "Swing2")
+		if Swing1 or Swing2 then
+			table.insert(AutoParry.Connections, Swing1.Played:Connect(AutoParry.OnLocalPlayerSwingSound))
+			table.insert(AutoParry.Connections, Swing2.Played:Connect(AutoParry.OnLocalPlayerSwingSound))
+			table.insert(AutoParry.Connections, Swing1.Ended:Connect(AutoParry.OnLocalPlayerSwingSoundEnd))
+			table.insert(AutoParry.Connections, Swing2.Ended:Connect(AutoParry.OnLocalPlayerSwingSoundEnd))
+		end
 	end
 
 	-- Connect event to OnFeintPlayed...
-	if Player ~= Players.LocalPlayer then
-		HumanoidRootPart:WaitForChild("Feint").Played:Connect(function()
-			Helper.TryAndCatch(
-				-- Try...
-				function()
-					local HumanoidRootPart = Entity:WaitForChild("HumanoidRootPart")
-					if not HumanoidRootPart then
-						return
+	local Feint = AutoParry.FindSound(HumanoidRootPart, "Feint")
+	if Feint then
+		table.insert(
+			AutoParry.Connections,
+			Feint.Played:Connect(function()
+				Helper.TryAndCatch(
+					-- Try...
+					function()
+						local HumanoidRootPart = Entity:FindFirstChild("HumanoidRootPart")
+						if not HumanoidRootPart then
+							return
+						end
+
+						local LocalPlayerData = Helper.GetLocalPlayerWithData()
+						if not LocalPlayerData then
+							return
+						end
+
+						if
+							not Pascal:GetConfig().AutoParry.LocalAttackAutoParry
+							and Player == LocalPlayerData.Player
+						then
+							return
+						end
+
+						AutoParry.OnPlayerFeint(LocalPlayerData, HumanoidRootPart, Player)
+					end,
+
+					-- Catch...
+					function(Error)
+						Pascal:GetLogger():Print("AutoParry.OnPlayerFeint - Caught exception: %s", Error)
 					end
+				)
+			end)
+		)
 
-					local LocalPlayerData = Helper.GetLocalPlayerWithData()
-					if not LocalPlayerData then
-						return
+		table.insert(
+			AutoParry.Connections,
+			Feint.Ended:Connect(function()
+				Helper.TryAndCatch(
+					-- Try...
+					function()
+						AutoParry.OnPlayerFeintEnd(Player)
+					end,
+
+					-- Catch...
+					function(Error)
+						Pascal:GetLogger():Print("AutoParry.OnPlayerFeintEnd - Caught exception: %s", Error)
 					end
-
-					AutoParry.OnPlayerFeint(LocalPlayerData, HumanoidRootPart, Player)
-				end,
-
-				-- Catch...
-				function(Error)
-					Pascal:GetLogger():Print("AutoParry.OnPlayerFeint - Caught exception: %s", Error)
-				end
-			)
-		end)
-
-		HumanoidRootPart:WaitForChild("Feint").Ended:Connect(function()
-			Helper.TryAndCatch(
-				-- Try...
-				function()
-					AutoParry.OnPlayerFeintEnd(Player)
-				end,
-
-				-- Catch...
-				function(Error)
-					Pascal:GetLogger():Print("AutoParry.OnPlayerFeintEnd - Caught exception: %s", Error)
-				end
-			)
-		end)
+				)
+			end)
+		)
 	end
 
 	-- Connect event to OnAnimationEnded...
@@ -804,8 +1054,18 @@ function AutoParry:OnEntityAdded(Entity)
 			Helper.TryAndCatch(
 				-- Try...
 				function()
-					local HumanoidRootPart = Entity:WaitForChild("HumanoidRootPart")
+					local Humanoid = Entity:FindFirstChild("Humanoid")
+					if not Humanoid then
+						return
+					end
+
+					local HumanoidRootPart = Entity:FindFirstChild("HumanoidRootPart")
 					if not HumanoidRootPart then
+						return
+					end
+
+					local Animator = Humanoid:FindFirstChild("Animator")
+					if not Animator then
 						return
 					end
 
@@ -820,11 +1080,12 @@ function AutoParry:OnEntityAdded(Entity)
 						AnimationTrack,
 						AnimationTrack.Animation,
 						Helper.GetPlayerFromEntity(Entity),
-						HumanoidRootPart
+						HumanoidRootPart,
+						Humanoid
 					)
 
 					-- Call OnAnimationPlayed for AutoParryLogger...
-					AutoParryLogger:OnAnimationPlayed(Entity, HumanoidRootPart, LocalPlayerData, AnimationTrack)
+					AutoParryLogger:OnAnimationPlayed(Player, Entity, HumanoidRootPart, LocalPlayerData, AnimationTrack)
 
 					-- Connect event to OnAnimationEnded...
 					table.insert(
@@ -833,8 +1094,35 @@ function AutoParry:OnEntityAdded(Entity)
 							Helper.TryAndCatch(
 								-- Try...
 								function()
+									local Humanoid = Entity:FindFirstChild("Humanoid")
+									if not Humanoid then
+										return
+									end
+
+									local HumanoidRootPart = Entity:FindFirstChild("HumanoidRootPart")
+									if not HumanoidRootPart then
+										return
+									end
+
+									local Animator = Humanoid:FindFirstChild("Animator")
+									if not Animator then
+										return
+									end
+
+									local LocalPlayerData = Helper.GetLocalPlayerWithData()
+									if not LocalPlayerData then
+										return
+									end
+
 									-- Call OnAnimationEnded...
-									AutoParry:OnAnimationEnded(EntityData)
+									AutoParry:OnAnimationEnded(
+										EntityData,
+										AnimationTrack,
+										AnimationTrack.Animation,
+										Helper.GetPlayerFromEntity(Entity),
+										HumanoidRootPart,
+										Humanoid
+									)
 								end,
 
 								-- Catch...

@@ -3,7 +3,6 @@ local RenderEvent = {}
 
 -- Requires
 local AutoParryLogger = require("Features/AutoParryLogger")
-local Movement = require("Features/Movement")
 local Helper = require("Modules/Helpers/Helper")
 local Pascal = require("Modules/Helpers/Pascal")
 

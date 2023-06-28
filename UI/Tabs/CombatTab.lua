@@ -38,6 +38,9 @@ function CombatTab:LoadLinoriaConfigFromName(Name)
 			ParryRepeat = AnimationData.RepeatParryAmount >= 0,
 			ParryRepeatTimes = AnimationData.RepeatParryAmount,
 			ParryRepeatDelay = AnimationData.RepeatParryDelay,
+			ParryRepeatAnimationEnds = false,
+			DelayUntilInRange = AnimationData.DelayDistance and AnimationData.DelayDistance > 0 or false,
+			ActivateOnEnd = false,
 		}
 	end
 
@@ -266,10 +269,26 @@ function CombatTab:AutoParryGroup()
 	})
 
 	SubTab1:AddToggle("BlockInsteadOfParryToggle", {
-		Text = "Block until animation ends",
+		Text = "Block until ending",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
 			Pascal:GetConfig().AutoParryBuilder.ShouldBlock = Value
+		end,
+	})
+
+	SubTab1:AddToggle("ActivateOnEnd", {
+		Text = "Only activate on end",
+		Default = false, -- Default value (true / false)
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.ActivateOnEnd = Value
+		end,
+	})
+
+	SubTab1:AddToggle("DelayUntilInRange", {
+		Text = "Delay until in range",
+		Default = false, -- Default value (true / false)
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.DelayUntilInRange = Value
 		end,
 	})
 
@@ -281,12 +300,21 @@ function CombatTab:AutoParryGroup()
 		end,
 	})
 
+	SubTab1:AddToggle("EnableParryRepeatAnimationEnds", {
+		Text = "Parry repeat until ending",
+		Default = false, -- Default value (true / false)
+		Tooltip = "This will repeat the parry until the animation ends with the specified delay, and ignores the parry-repeat slider.",
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.ParryRepeatAnimationEnds = Value
+		end,
+	})
+
 	local Depbox = SubTab1:AddDependencyBox()
 	Depbox:AddSlider("ParryRepeatSlider", {
 		Text = "Parry repeat times",
 		Default = 3,
 		Min = 1,
-		Max = 10,
+		Max = 100,
 		Rounding = 0,
 		Compact = false,
 		Suffix = "x",
@@ -326,6 +354,14 @@ function CombatTab:AutoParryGroup()
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
 			Pascal:GetConfig().AutoParryLogging.LogYourself = Value
+		end,
+	})
+
+	SubTab2:AddToggle("RemoveIfAlreadyAdded", {
+		Text = "Remove if already added",
+		Default = false, -- Default value (true / false)
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryLogging.BlockLogged = Value
 		end,
 	})
 
@@ -388,11 +424,11 @@ function CombatTab:AutoParryGroup()
 	})
 
 	SubTab3:AddDropdown("InputMethodDropdown", {
-		Values = { "KeyEvents" },
+		Values = { "KeyPress" },
 		Default = 1,
 		Multi = false,
 		Text = "Input Method",
-		Tooltip = "Using Remotes is usually more risky, as KeyEvents will simulate a key press instead.",
+		Tooltip = "For now, the only method here is KeyPress.",
 		Callback = function(Value)
 			Pascal:GetConfig().AutoParry.InputMethod = Value
 		end,
@@ -472,7 +508,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Should roll-cancel",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParry.RollOnFeints = Value
+			Pascal:GetConfig().AutoParry.ShouldRollCancel = Value
 		end,
 	})
 
@@ -480,7 +516,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Roll-cancel delay",
 		Default = 0,
 		Min = 0,
-		Max = 10,
+		Max = 100,
 		Rounding = 2,
 		Compact = false,
 		Suffix = "ms",
@@ -488,6 +524,21 @@ function CombatTab:AutoParryGroup()
 
 		Callback = function(Value)
 			Pascal:GetConfig().AutoParry.RollCancelDelay = Value
+		end,
+	})
+
+	SubTab3:AddSlider("DistanceThresholdInRange", {
+		Text = "Distance-delay threshold",
+		Default = 0,
+		Min = 0,
+		Max = 1000,
+		Rounding = 0,
+		Compact = false,
+		Suffix = "m",
+		Tooltip = "Distance-delay won't activate if the distance is past this threshold...",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParry.DistanceThresholdInRange = Value
 		end,
 	})
 
@@ -579,6 +630,9 @@ function CombatTab:BuilderSettingsGroup()
 			Toggles.EnableParryRepeat:SetValue(BuilderSetting.ParryRepeat)
 			Toggles.RollInsteadOfParryToggle:SetValue(BuilderSetting.ShouldRoll)
 			Toggles.BlockInsteadOfParryToggle:SetValue(BuilderSetting.ShouldBlock)
+			Toggles.EnableParryRepeatAnimationEnds:SetValue(BuilderSetting.ParryRepeatAnimationEnds)
+			Toggles.DelayUntilInRange:SetValue(BuilderSetting.DelayUntilInRange)
+			Toggles.ActivateOnEnd:SetValue(BuilderSetting.ActivateOnEnd)
 		end,
 	})
 
@@ -616,6 +670,9 @@ function CombatTab:BuilderSettingsGroup()
 			ParryRepeat = Pascal:GetConfig().AutoParryBuilder.ParryRepeat,
 			ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder.ParryRepeatTimes,
 			ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder.ParryRepeatDelay,
+			ParryRepeatAnimationEnds = Pascal:GetConfig().AutoParryBuilder.ParryRepeatAnimationEnds,
+			DelayUntilInRange = Pascal:GetConfig().AutoParryBuilder.DelayUntilInRange,
+			ActivateOnEnd = Pascal:GetConfig().AutoParryBuilder.ActivateOnEnd,
 		}
 
 		Library:Notify(
@@ -659,6 +716,9 @@ function CombatTab:BuilderSettingsGroup()
 		BuilderSetting.ParryRepeat = Pascal:GetConfig().AutoParryBuilder.ParryRepeat
 		BuilderSetting.ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder.ParryRepeatTimes
 		BuilderSetting.ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder.ParryRepeatDelay
+		BuilderSetting.ParryRepeatAnimationEnds = Pascal:GetConfig().AutoParryBuilder.ParryRepeatAnimationEnds
+		BuilderSetting.DelayUntilInRange = Pascal:GetConfig().AutoParryBuilder.DelayUntilInRange
+		BuilderSetting.ActivateOnEnd = Pascal:GetConfig().AutoParryBuilder.ActivateOnEnd
 
 		CombatTab:UpdateBuilderSettingsList()
 		Options.BuilderSettingsList:SetValue(nil)

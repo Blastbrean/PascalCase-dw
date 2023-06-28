@@ -14,6 +14,18 @@ local Methods = {
 	GetUpValue = getupvalue or debug.getupvalue,
 	GetUpValues = getupvalues or debug.getupvalues,
 	SetUpValue = setupvalue or debug.setupvalue,
+	IsWindowActive = iswindowactive,
+	Mouse2Press = mouse2press,
+	Mouse2Release = mouse2release,
+	KeyPress = keypress,
+	KeyRelease = keyrelease,
+	Random = math.random,
+	ToNumber = tonumber,
+	RandomSeed = math.randomseed,
+	Max = math.max,
+	Clamp = math.clamp,
+	ExecutionClock = os.clock,
+	Wait = task.wait or wait,
 	IsXClosure = is_synapse_function
 		or issentinelclosure
 		or is_protosmasher_closure
@@ -33,30 +45,31 @@ if not Methods.HookMetaMethod and Methods.HookFunction and Methods.GetRawMetatab
 		local MetaTable = Methods.GetRawMetatable(Object)
 
 		-- Hook metamethod function inside of metatable, and replace it with our new function...
+		-- Also call NewCClosure for prevention of call-stack abuse, and error message abuse.
 		-- We will also return the original...
-		return Methods.HookFunction(MetaTable[MetaMethod], NewFunction)
+		return Methods.HookFunction(MetaTable[MetaMethod], Methods.NewCClosure(NewFunction))
+	end
+end
+
+-- Hotfix for HookFunction...
+if Methods.HookFunction then
+	-- Ccall NewCClosure for prevention of call-stack abuse, and error message abuse.
+	Methods.HookFunction = function(FunctionToHook, NewFunction)
+		return Methods.HookFunction(FunctionToHook, Methods.NewCClosure(NewFunction))
 	end
 end
 
 -- Default settings
 local DefaultSettings = {
-	Movement = {
-		WalkSpeedOverride = false,
-		WalkSpeedOverrideAmount = 16.0,
-		JumpPowerOverride = false,
-		JumpPowerOverrideAmount = 20.0,
-		NoClip = false,
-		InfiniteJump = false,
-		Fly = false,
-	},
 	AutoParry = {
 		Enabled = true,
-		InputMethod = "KeyEvents",
+		InputMethod = "KeyPress",
 		AutoFeint = false,
 		IfLookingAtEnemy = false,
 		EnemyLookingAtYou = false,
 		LocalAttackAutoParry = false,
 		ShouldRollCancel = false,
+		RollCancelDelay = 0.0,
 		RollOnFeints = false,
 		PingAdjust = 25,
 		AdjustTimingsBySlider = 0,
@@ -64,6 +77,7 @@ local DefaultSettings = {
 		MinimumFeintDistance = 0,
 		MaximumFeintDistance = 0,
 		RollOnFeintDelay = 0.0,
+		DistanceThresholdInRange = 0.0,
 		Hitchance = 100,
 	},
 	AutoParryBuilder = {
@@ -77,6 +91,7 @@ local DefaultSettings = {
 		ParryRepeat = false,
 		ParryRepeatTimes = 3,
 		ParryRepeatDelay = 150.0,
+		ParryRepeatAnimationEnds = false,
 		BuilderSettingsList = {},
 		CurrentActiveSettingString = nil,
 	},
@@ -87,6 +102,8 @@ local DefaultSettings = {
 		BlacklistedAnimationIds = {},
 		MinimumDistance = 5.0,
 		MaximumDistance = 15.0,
+		LogYourself = false,
+		BlockLogged = false,
 		ActiveConfigurationString = {},
 	},
 }

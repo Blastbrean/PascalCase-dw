@@ -58,8 +58,8 @@ function Helper.LoopCurrentEntities(SkipLocal, EntityFolder, CallbackFn)
 	end
 end
 
-function Helper.AttemptFn(Try)
-	return pcall(Try)
+function Helper.AttemptFn(Try, ...)
+	return pcall(Try, ...)
 end
 
 function Helper.TryAndCatch(Try, Catch)

@@ -15,7 +15,7 @@ local ScreenGui = Instance.new("ScreenGui")
 ProtectGui(ScreenGui)
 
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-ScreenGui.Parent = CoreGui
+ScreenGui.Parent = gethui and gethui() or CoreGui
 
 local Toggles = {}
 local Options = {}
@@ -2995,7 +2995,11 @@ function Library:UpdateInfoLoggerBlacklist(BlacklistList)
 			continue
 		end
 
-		if not BlacklistList[RegistryValue.AnimationId] then
+		if
+			getgenv().Settings.AutoParryLogging.BlockLogged
+			and not getgenv().Settings.AutoParryBuilder.BuilderSettingsList[RegistryValue.AnimationId]
+			and not BlacklistList[RegistryValue.AnimationId]
+		then
 			continue
 		end
 
@@ -3090,7 +3094,10 @@ function Library:AddAnimationDataToInfoLogger(DataName, AnimationId, AnimationNa
 	InfoContainerLabel.InputBegan:Connect(function(Input)
 		if Input.UserInputType == Enum.UserInputType.MouseButton2 and not Library:MouseIsOverOpenedFrame() then
 			setclipboard(Library.RegistryMap[InfoContainerLabel].AnimationId)
-			Library:Notify(string.format("Copied %s to clipboard!", Library.RegistryMap[InfoContainerLabel].AnimationId), 2.5)
+			Library:Notify(
+				string.format("Copied %s to clipboard!", Library.RegistryMap[InfoContainerLabel].AnimationId),
+				2.5
+			)
 		end
 	end)
 
