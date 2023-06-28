@@ -57,9 +57,17 @@ end
 
 -- Hotfix for HookFunction...
 if Methods.HookFunction then
-	-- Ccall NewCClosure for prevention of call-stack abuse, and error message abuse.
+	-- Call NewCClosure for prevention of call-stack abuse, and error message abuse.
 	Methods.HookFunction = function(FunctionToHook, NewFunction)
 		return Methods.HookFunction(FunctionToHook, Methods.NewCClosure(NewFunction))
+	end
+end
+
+-- Addon for QueueOnTeleport...
+if Methods.QueueOnTeleport then
+	Methods.ClearQueueOnTeleport = function()
+		-- Run an empty string to clear the queue...
+		Methods.QueueOnTeleport("")
 	end
 end
 

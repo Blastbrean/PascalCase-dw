@@ -43,6 +43,9 @@ local function StartDetachFn()
 			-- Unload menu...
 			Menu:Unload()
 
+			-- Clear queue on teleport...
+			Pascal:GetMethods().ClearQueueOnTeleport()
+
 			-- Unload sense...
 			Pascal:GetSense().Unload()
 

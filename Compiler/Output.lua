@@ -87,6 +87,9 @@ local function StartDetachFn()
 			-- Unload menu...
 			Menu:Unload()
 
+			-- Clear queue on teleport...
+			Pascal:GetMethods().ClearQueueOnTeleport()
+
 			-- Unload sense...
 			Pascal:GetSense().Unload()
 
@@ -291,9 +294,17 @@ end
 
 -- Hotfix for HookFunction...
 if Methods.HookFunction then
-	-- Ccall NewCClosure for prevention of call-stack abuse, and error message abuse.
+	-- Call NewCClosure for prevention of call-stack abuse, and error message abuse.
 	Methods.HookFunction = function(FunctionToHook, NewFunction)
 		return Methods.HookFunction(FunctionToHook, Methods.NewCClosure(NewFunction))
+	end
+end
+
+-- Addon for QueueOnTeleport...
+if Methods.QueueOnTeleport then
+	Methods.ClearQueueOnTeleport = function()
+		-- Run an empty string to clear the queue...
+		Methods.QueueOnTeleport("")
 	end
 end
 
@@ -4248,7 +4259,6 @@ function SettingsTab:CreateElements(Library)
 
 	MenuGroup:AddButton("Unload script", function()
 		-- Notify user that we are detaching the script...
-		Library:Notify("PascalCase is detaching...", 5.0)
 		Pascal:GetEnvironment().ShutdownScript = true
 		Library:Unload()
 	end)
