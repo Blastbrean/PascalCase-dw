@@ -100,6 +100,10 @@ local function MainThreadFn()
 			-- Create menu...
 			Menu:Setup()
 
+			-- Queue our script on teleport...
+			Pascal:GetMethods()
+				.QueueOnTeleport("loadstring(game:HttpGet('https://raw.githubusercontent.com/Blastbrean/PascalCase/main/Main.lua'))()")
+
 			-- Connect all events...
 			RenderEventObject:Connect(RenderEvent.CallbackFn)
 			EntityHandlerObject:Connect(EntityHandler.CallbackFn)

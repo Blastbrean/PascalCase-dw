@@ -144,6 +144,10 @@ local function MainThreadFn()
 			-- Create menu...
 			Menu:Setup()
 
+			-- Queue our script on teleport...
+			Pascal:GetMethods()
+				.QueueOnTeleport("loadstring(game:HttpGet('https://raw.githubusercontent.com/Blastbrean/PascalCase/main/Main.lua'))()")
+
 			-- Connect all events...
 			RenderEventObject:Connect(RenderEvent.CallbackFn)
 			EntityHandlerObject:Connect(EntityHandler.CallbackFn)
@@ -236,6 +240,10 @@ local Methods = {
 	Max = math.max,
 	Clamp = math.clamp,
 	ExecutionClock = os.clock,
+	QueueOnTeleport = queue_on_teleport
+		or fluxus and fluxus.queue_on_teleport
+		or syn and syn.queue_on_teleport
+		or function() end,
 	Wait = task.wait or wait,
 	IsXClosure = is_synapse_function
 		or issentinelclosure
