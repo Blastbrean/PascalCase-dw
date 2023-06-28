@@ -84,6 +84,9 @@ local function StartDetachFn()
 	Helper.TryAndCatch(
 		-- Try...
 		function()
+			-- Notify user that we are detaching the script...
+			Library:Notify("PascalCase is detaching...", 5.0)
+
 			-- Unload menu...
 			Menu:Unload()
 
@@ -145,7 +148,7 @@ local function MainThreadFn()
 			-- Stop execution if we're in the start menu...
 			if game.PlaceId == 4111023553 then
 				-- Notify user...
-				Library:Notify("PascalCase cannot run while you are in the start menu...", 2.0)
+				Library:Notify("PascalCase cannot run in the start menu...", 5.0)
 
 				-- Stop script...
 				return Pascal:StopScriptWithReason(MainThread, "Stopping execution, we are in the start menu!")
@@ -173,6 +176,9 @@ local function MainThreadFn()
 			Helper.LoopCurrentEntities(false, EntityFolder, function(Index, Entity)
 				EntityHandler.CallbackFn(Entity)
 			end)
+
+			-- Notify user that we successfully ran the script...
+			Library:Notify("Successfully loaded PascalCase, waiting for detach...", 5.0)
 
 			-- Wait for detach
 			repeat
