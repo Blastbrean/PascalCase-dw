@@ -151,6 +151,10 @@ function Pascal:GetEffectReplicator()
 	return EffectReplicator
 end
 
+function Pascal:GetPlaceId()
+	return game.PlaceId
+end
+
 function Pascal:GetEnvironment()
 	local Environment = getgenv()
 	return Environment

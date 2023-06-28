@@ -84,9 +84,6 @@ local function StartDetachFn()
 	Helper.TryAndCatch(
 		-- Try...
 		function()
-			-- Notify user that we are detaching the script...
-			Library:Notify("PascalCase is detaching...", 5.0)
-
 			-- Unload menu...
 			Menu:Unload()
 
@@ -146,7 +143,7 @@ local function MainThreadFn()
 				.QueueOnTeleport("loadstring(game:HttpGet('https://raw.githubusercontent.com/Blastbrean/PascalCase/main/Main.lua'))()")
 
 			-- Stop execution if we're in the start menu...
-			if game.PlaceId == 4111023553 then
+			if Pascal:GetPlaceId() == 4111023553 then
 				-- Notify user...
 				Library:Notify("PascalCase cannot run in the start menu...", 5.0)
 
@@ -182,8 +179,11 @@ local function MainThreadFn()
 
 			-- Wait for detach
 			repeat
-				task.wait()
+				Pascal:GetMethods().Wait()
 			until Pascal:IsScriptShuttingDown()
+
+			-- Run detach code
+			StartDetachFn()
 		end,
 
 		-- Catch...
@@ -191,9 +191,6 @@ local function MainThreadFn()
 			Pascal:GetLogger():Print("MainThreadFn - Exception caught: %s", Error)
 		end
 	)
-
-	-- Run detach code
-	StartDetachFn()
 end
 
 -- Run thread
@@ -386,6 +383,10 @@ end
 
 function Pascal:GetEffectReplicator()
 	return EffectReplicator
+end
+
+function Pascal:GetPlaceId()
+	return game.PlaceId
 end
 
 function Pascal:GetEnvironment()
@@ -4246,8 +4247,10 @@ function SettingsTab:CreateElements(Library)
 	})
 
 	MenuGroup:AddButton("Unload script", function()
-		Library:Unload()
+		-- Notify user that we are detaching the script...
+		Library:Notify("PascalCase is detaching...", 5.0)
 		Pascal:GetEnvironment().ShutdownScript = true
+		Library:Unload()
 	end)
 
 	MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", { Default = "End", NoUI = true, Text = "Menu keybind" })

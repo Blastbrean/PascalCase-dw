@@ -31,8 +31,10 @@ function SettingsTab:CreateElements(Library)
 	})
 
 	MenuGroup:AddButton("Unload script", function()
-		Library:Unload()
+		-- Notify user that we are detaching the script...
+		Library:Notify("PascalCase is detaching...", 5.0)
 		Pascal:GetEnvironment().ShutdownScript = true
+		Library:Unload()
 	end)
 
 	MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", { Default = "End", NoUI = true, Text = "Menu keybind" })
