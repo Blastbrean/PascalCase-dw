@@ -138,15 +138,27 @@ local function MainThreadFn()
 			-- Reset Pascal...
 			Pascal:Reset()
 
+			-- Queue our script on teleport...
+			Pascal:GetMethods()
+				.QueueOnTeleport("loadstring(game:HttpGet('https://raw.githubusercontent.com/Blastbrean/PascalCase/main/Main.lua'))()")
+
+			-- Stop execution if we're in the start menu...
+			if game.PlaceId == 4111023553 then
+				-- Notify user...
+				Library:Notify("PascalCase cannot run while you are in the start menu...", 2.0)
+
+				-- Stop script...
+				return Pascal:StopScriptWithReason(MainThread, "Stopping execution, we are in the start menu!")
+			end
+
 			-- Load sense...
 			Pascal:GetSense().Load()
 
 			-- Create menu...
 			Menu:Setup()
 
-			-- Queue our script on teleport...
-			Pascal:GetMethods()
-				.QueueOnTeleport("loadstring(game:HttpGet('https://raw.githubusercontent.com/Blastbrean/PascalCase/main/Main.lua'))()")
+			-- Start effect replicator...
+			Pascal:GetEffectReplicator():Start()
 
 			-- Connect all events...
 			RenderEventObject:Connect(RenderEvent.CallbackFn)
@@ -1470,13 +1482,15 @@ function EffectReplicator:CommunicateToListeners(Data)
 	end
 end
 
-local Requests = ReplicatedStorage:WaitForChild("Requests")
-local EffectReplication = Requests:WaitForChild("EffectReplication")
-local UpdateRemote = EffectReplication:WaitForChild("_update")
+function EffectReplicator:Start()
+	local Requests = ReplicatedStorage:WaitForChild("Requests")
+	local EffectReplication = Requests:WaitForChild("EffectReplication")
+	local UpdateRemote = EffectReplication:WaitForChild("_update")
 
-Connection = UpdateRemote.OnClientEvent:Connect(function(Data)
-	EffectReplicator:CommunicateToListeners(Data)
-end)
+	Connection = UpdateRemote.OnClientEvent:Connect(function(Data)
+		EffectReplicator:CommunicateToListeners(Data)
+	end)
+end
 
 return EffectReplicator
 
