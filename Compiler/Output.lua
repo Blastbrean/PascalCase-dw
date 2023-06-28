@@ -68,8 +68,9 @@ local Menu = require("UI/Menu")
 -- Hooking
 local HookHandler = require("Modules/Helpers/HookHandler")
 
--- Entity folder...
-local EntityFolder = Workspace:WaitForChild("Live")
+-- Entity folder & entity handler (special)...
+local EntityFolder = nil
+local EntityHandlerObject = nil
 
 -- Events
 local RenderEvent = require("Events/RenderEvent")
@@ -78,7 +79,6 @@ local EntityHandler = require("Events/EntityHandler")
 -- Create logger, thread, and event.
 local MainThread = Thread:New()
 local RenderEventObject = Event:New(RunService.RenderStepped)
-local EntityHandlerObject = Event:New(EntityFolder.ChildAdded)
 
 local function StartDetachFn()
 	Helper.TryAndCatch(
@@ -150,6 +150,10 @@ local function MainThreadFn()
 				-- Stop script...
 				return Pascal:StopScriptWithReason(MainThread, "Stopping execution, we are in the start menu!")
 			end
+
+			-- Special event, aswell as the fact we have to do this after the start menu check and queue so we don't yield...
+			EntityFolder = Workspace:WaitForChild("Live")
+			EntityHandlerObject = Event:New(EntityFolder.ChildAdded)
 
 			-- Load sense...
 			Pascal:GetSense().Load()
