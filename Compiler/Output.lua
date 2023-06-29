@@ -45,7 +45,7 @@ __bundle_register("__root", function(require, _LOADED, __bundle_register, __bund
 -- Check for cloneref...
 -- If it doesn't exist, we will halt the script (special and important function...)
 if not cloneref then
-	return print("Failed to find cloneref method...")
+	return rconsoleprint("Failed to find cloneref method...")
 end
 
 -- Global service function (cloneref)
@@ -85,9 +85,6 @@ local function StartDetachFn()
 		function()
 			-- Unload menu...
 			Menu:Unload()
-
-			-- Unload sense...
-			Pascal:GetSense().Unload()
 
 			-- Reset Pascal...
 			Pascal:Reset()
@@ -153,9 +150,6 @@ local function MainThreadFn()
 			-- Special event, aswell as the fact we have to do this after the start menu check and queue so we don't yield...
 			EntityFolder = Workspace:WaitForChild("Live")
 			EntityHandlerObject = Event:New(EntityFolder.ChildAdded)
-
-			-- Load sense...
-			Pascal:GetSense().Load()
 
 			-- Create menu...
 			Menu:Setup()
@@ -754,8 +748,8 @@ function Logger:Print(String, ...)
 	-- Format string
 	local FormatString = string.format(String, ...)
 
-	-- Print using print
-	print(FormatString)
+	-- Print using rconsoleprint
+	rconsoleprint(FormatString)
 
 	-- Add to current log our current string
 	table.insert(self.CurrentLog, FormatString)

@@ -42,9 +42,6 @@ local function StartDetachFn()
 			-- Unload menu...
 			Menu:Unload()
 
-			-- Unload sense...
-			Pascal:GetSense().Unload()
-
 			-- Reset Pascal...
 			Pascal:Reset()
 
@@ -109,9 +106,6 @@ local function MainThreadFn()
 			-- Special event, aswell as the fact we have to do this after the start menu check and queue so we don't yield...
 			EntityFolder = Workspace:WaitForChild("Live")
 			EntityHandlerObject = Event:New(EntityFolder.ChildAdded)
-
-			-- Load sense...
-			Pascal:GetSense().Load()
 
 			-- Create menu...
 			Menu:Setup()
