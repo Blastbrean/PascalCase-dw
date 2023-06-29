@@ -22,9 +22,6 @@ local Pascal = require("Modules/Helpers/Pascal")
 local Helper = require("Modules/Helpers/Helper")
 local Menu = require("UI/Menu")
 
--- Hooking
-local HookHandler = require("Modules/Helpers/HookHandler")
-
 -- Entity folder & entity handler (special)...
 local EntityFolder = nil
 local EntityHandlerObject = nil
@@ -63,11 +60,6 @@ local function StartDetachFn()
 
 			-- Disconnect stuff...
 			Pascal:GetEffectReplicator():Disconnect()
-
-			-- Remove hooks...
-			if not HookHandler:RemoveHooks() then
-				Pascal:GetLogger():Print("Unable to remove hooks while detaching!")
-			end
 		end,
 
 		-- Catch...
@@ -87,11 +79,6 @@ local function MainThreadFn()
 			-- Check for all methods, if we are missing any, stop the thread and return.
 			if not Pascal:CheckForAllMethods() then
 				return Pascal:StopScriptWithReason(MainThread, "Failed to find all needed methods!")
-			end
-
-			-- Start hooks...
-			if not HookHandler:StartHooks() then
-				return Pascal:StopScriptWithReason(MainThread, "Failed to start hooks!")
 			end
 
 			-- Reset Pascal...

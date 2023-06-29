@@ -6,7 +6,6 @@ local Library = require("UI/Library/Library")
 -- Tabs
 local SettingsTab = require("UI/Tabs/SettingsTab")
 local CombatTab = require("UI/Tabs/CombatTab")
-local VisualsTab = require("UI/Tabs/VisualsTab")
 
 function Menu:Setup()
 	-- Create Window
@@ -19,7 +18,6 @@ function Menu:Setup()
 
 	-- Setup Tabs
 	CombatTab:Setup(self.Window)
-	VisualsTab:Setup(self.Window)
 	SettingsTab:Setup(self.Window, Library)
 end
 
