@@ -54,6 +54,7 @@ getgenv().GetService = function(ServiceName)
 end
 
 -- Services
+local Players = GetService("Players")
 local RunService = GetService("RunService")
 local Workspace = GetService("Workspace")
 local UserInputService = GetService("UserInputService")
@@ -79,6 +80,7 @@ local EntityHandler = require("Events/EntityHandler")
 -- Create logger, thread, and event.
 local MainThread = Thread:New()
 local RenderEventObject = Event:New(RunService.RenderStepped)
+local OnTeleportEventObject = Event:New(Players.LocalPlayer.OnTeleport)
 
 local function StartDetachFn()
 	Helper.TryAndCatch(
@@ -86,9 +88,6 @@ local function StartDetachFn()
 		function()
 			-- Unload menu...
 			Menu:Unload()
-
-			-- Clear queue on teleport...
-			Pascal:GetMethods().ClearQueueOnTeleport()
 
 			-- Unload sense...
 			Pascal:GetSense().Unload()
@@ -99,6 +98,7 @@ local function StartDetachFn()
 			-- Remove events...
 			RenderEventObject:Disconnect()
 			EntityHandlerObject:Disconnect()
+			OnTeleportEventObject:Disconnect()
 
 			-- Special disconnect (see EventHandler)...
 			if EntityHandler.DisconnectAutoParry then
@@ -142,8 +142,15 @@ local function MainThreadFn()
 			Pascal:Reset()
 
 			-- Queue our script on teleport...
-			Pascal:GetMethods()
-				.QueueOnTeleport("loadstring(game:HttpGet('https://raw.githubusercontent.com/Blastbrean/PascalCase/main/Main.lua'))()")
+			OnTeleportEventObject:Connect(function(State)
+				-- We don't care if it hasn't started yet...
+				if State ~= Enum.TeleportState.Started then
+					return
+				end
+
+				-- Queue our script to run...
+				Pascal:GetMethods().QueueOnTeleport(Pascal:GetQueueScript())
+			end)
 
 			-- Stop execution if we're in the start menu...
 			if Pascal:GetPlaceId() == 4111023553 then
@@ -300,14 +307,6 @@ if Methods.HookFunction then
 	end
 end
 
--- Addon for QueueOnTeleport...
-if Methods.QueueOnTeleport then
-	Methods.ClearQueueOnTeleport = function()
-		-- Run an empty string to clear the queue...
-		Methods.QueueOnTeleport("")
-	end
-end
-
 -- Default settings
 local DefaultSettings = {
 	AutoParry = {
@@ -369,6 +368,10 @@ local EffectReplicator = EffectReplication:New()
 
 function Pascal:GetConfigurationPath()
 	return "PascalCase/Deepwoken"
+end
+
+function Pascal:GetQueueScript()
+	return "loadstring(game:HttpGet('https://raw.githubusercontent.com/Blastbrean/PascalCase/main/Main.lua'))()"
 end
 
 function Pascal:GetBuilderSettingFromIdentifier(Identifier)

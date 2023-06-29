@@ -63,14 +63,6 @@ if Methods.HookFunction then
 	end
 end
 
--- Addon for QueueOnTeleport...
-if Methods.QueueOnTeleport then
-	Methods.ClearQueueOnTeleport = function()
-		-- Run an empty string to clear the queue...
-		Methods.QueueOnTeleport("")
-	end
-end
-
 -- Default settings
 local DefaultSettings = {
 	AutoParry = {
@@ -132,6 +124,10 @@ local EffectReplicator = EffectReplication:New()
 
 function Pascal:GetConfigurationPath()
 	return "PascalCase/Deepwoken"
+end
+
+function Pascal:GetQueueScript()
+	return "loadstring(game:HttpGet('https://raw.githubusercontent.com/Blastbrean/PascalCase/main/Main.lua'))()"
 end
 
 function Pascal:GetBuilderSettingFromIdentifier(Identifier)
