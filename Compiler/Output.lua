@@ -1598,7 +1598,11 @@ function AutoParry.HasTalent(Entity, TalentString)
 	end
 
 	local PlayerFromCharacter = Players:GetPlayerFromCharacter(Entity)
-	if PlayerFromCharacter and PlayerFromCharacter.Backpack:FindFirstChild(TalentString) then
+	if
+		PlayerFromCharacter
+		and PlayerFromCharacter.Backpack
+		and PlayerFromCharacter.Backpack:FindFirstChild(TalentString)
+	then
 		return true
 	end
 
@@ -1768,11 +1772,13 @@ function AutoParry.MovementCheck(EffectReplicator)
 		return false
 	end
 
-	if EffectReplicator:FindEffect("Pinned") or EffectReplicator:FindEffect("Carried") then
-		return false
+	if not EffectReplicator:FindEffect("Pinned") then
+		if not EffectReplicator:FindEffect("Carried") then
+			return true
+		end
 	end
 
-	return true
+	return false
 end
 
 function AutoParry.CheckFacingThresholdOnPlayers(LocalPlayerData, HumanoidRootPart)
@@ -1923,9 +1929,15 @@ function AutoParry.ValidateState(
 	if
 		AfterDelay
 		and BuilderData.ShouldRoll
-		and not AutoParry.CanRollWithEffects(EffectReplicator)
+		and not AutoParry.CanRoll(LocalPlayerData, HumanoidRootPart, EffectReplicator)
 		and Player ~= LocalPlayerData.Player
 	then
+		-- Notify user...
+		Library:Notify(
+			string.format("Cannot dodge on animation %s(%s)", BuilderData.NickName, BuilderData.AnimationId),
+			2.0
+		)
+
 		return false
 	end
 
@@ -2001,40 +2013,69 @@ function AutoParry.DelayAndValidateStateFn(
 	return true
 end
 
-function AutoParry.CanRollWithEffects(EffectReplicator)
+function AutoParry.CanRoll(LocalPlayerData, HumanoidRootPart, EffectReplicator)
+	if EffectReplicator:FindEffect("CarryObject") then
+		if not EffectReplicator:FindEffect("ClientSwim") then
+			return false
+		end
+	end
+
+	if EffectReplicator:FindEffect("UsingSpell") then
+		return false
+	end
+
 	if not AutoParry.MovementCheck(EffectReplicator) then
 		return false
 	end
 
-	if EffectReplicator:FindEffect("CarryObject") and not EffectReplicator:FindEffect("ClientSwim") then
+	if EffectReplicator:FindEffect("NoAttack") then
+		if not EffectReplicator:FindEffect("CanRoll") then
+			return false
+		end
+	end
+
+	if EffectReplicator:FindEffect("Dodged") then
 		return false
 	end
 
-	if EffectReplicator:FindEffect("NoAttack") and not EffectReplicator:FindEffect("CanRoll") then
+	if EffectReplicator:FindEffect("NoRoll") then
 		return false
 	end
 
-	if
-		EffectReplicator:FindEffect("UsingSpell")
-		or EffectReplicator:FindEffect("Dodged")
-		or EffectReplicator:FindEffect("NoRoll")
-		or EffectReplicator:FindEffect("Stun")
-		or EffectReplicator:FindEffect("Action")
-		or EffectReplicator:FindEffect("MobileAction")
-		or EffectReplicator:FindEffect("PreventAction")
-		or EffectReplicator:FindEffect("Carried")
-		or EffectReplicator:FindEffect("ClientSlide")
-	then
+	if EffectReplicator:FindEffect("Stun") then
 		return false
 	end
 
-	if
-		EffectReplicator:FindEffect("LightAttack")
-		and (
-			EffectReplicator:FindEffect("PressureForward")
-			or Helper.GetLocalPlayerWithData().Player.Backpack:FindFirstChild("Talent:Misdirection")
-		)
-	then
+	if EffectReplicator:FindEffect("Action") then
+		return false
+	end
+
+	if EffectReplicator:FindEffect("Carried") then
+		return false
+	end
+
+	if EffectReplicator:FindEffect("MobileAction") then
+		return false
+	end
+
+	if EffectReplicator:FindEffect("PreventAction") then
+		return false
+	end
+
+	local PressureForwardOrMisDirection = EffectReplicator:FindEffect("PressureForward")
+		or AutoParry.HasTalent(LocalPlayerData.Character, "Talent:Misdirection")
+
+	if EffectReplicator:FindEffect("LightAttack") then
+		if not PressureForwardOrMisDirection then
+			return false
+		end
+	end
+
+	if EffectReplicator:FindEffect("ClientSlide") then
+		return false
+	end
+
+	if HumanoidRootPart:FindFirstChild("GravBV") then
 		return false
 	end
 
@@ -2199,7 +2240,10 @@ function AutoParry:MainAutoParry(
 
 		local AttemptDelayAccountingForPingAdjustment =
 			Pascal:GetMethods().Max(AttemptMilisecondsConvertedToSeconds - PingAdjustmentAmount, 0.0)
-
+			
+		-- Reset time when out of range...
+		AutoParry.TimeWhenOutOfRange = nil
+		
 		return {
 			AttemptDelay = AttemptDelayAccountingForPingAdjustment,
 			RepeatDelay = RepeatDelayAccountingForPingAdjustment,
@@ -2457,7 +2501,12 @@ function AutoParry.OnPlayerFeint(LocalPlayerData, HumanoidRootPart, Player)
 	local EffectReplicator = Pascal:GetEffectReplicator()
 
 	-- Check if we can roll
-	if not AutoParry.CanRollWithEffects(EffectReplicator) and Player ~= LocalPlayerData.Player then
+	if
+		not AutoParry.CanRoll(LocalPlayerData, HumanoidRootPart, EffectReplicator)
+		and Player ~= LocalPlayerData.Player
+	then
+		-- Notify user...
+		Library:Notify(string.format("Caught feint on player %s, unable to dodge...", Player.Name), 2.0)
 		return
 	end
 
