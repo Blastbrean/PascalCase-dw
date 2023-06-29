@@ -1,7 +1,7 @@
 -- Check for cloneref...
 -- If it doesn't exist, we will halt the script (special and important function...)
 if not cloneref then
-	return print("Failed to find cloneref method...")
+	return rconsoleprint("Failed to find cloneref method...")
 end
 
 -- Global service function (cloneref)

@@ -5,8 +5,8 @@ function Logger:Print(String, ...)
 	-- Format string
 	local FormatString = string.format(String, ...)
 
-	-- Print using print
-	print(FormatString)
+	-- Print using rconsoleprint
+	rconsoleprint(FormatString)
 
 	-- Add to current log our current string
 	table.insert(self.CurrentLog, FormatString)
