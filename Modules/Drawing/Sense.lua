@@ -114,10 +114,12 @@ local EspObject = {}
 EspObject.__index = EspObject
 
 function EspObject.new(player, interface)
-	local self = setmetatable({}, EspObject)
-	self.player = assert(player, "Missing argument #1 (Player expected)")
-	self.interface = assert(interface, "Missing argument #2 (table expected)")
-	self:Construct()
+	pcall(function()
+		local self = setmetatable({}, EspObject)
+		self.player = assert(player, "Missing argument #1 (Player expected)")
+		self.interface = assert(interface, "Missing argument #2 (table expected)")
+		self:Construct()
+	end)
 	return self
 end
 
@@ -179,8 +181,10 @@ function EspObject:Construct()
 	}
 
 	self.renderConnection = runService.Heartbeat:Connect(function(deltaTime)
-		self:Update(deltaTime)
-		self:Render(deltaTime)
+		pcall(function()
+			self:Update(deltaTime)
+			self:Render(deltaTime)
+		end)
 	end)
 end
 
@@ -662,48 +666,56 @@ function EspInterface.AddInstance(instance, options)
 end
 
 function EspInterface.Load()
-	assert(not EspInterface._hasLoaded, "Esp has already been loaded.")
+	pcall(function()
+		assert(not EspInterface._hasLoaded, "Esp has already been loaded.")
 
-	local function createObject(player)
-		EspInterface._objectCache[player] = {
-			EspObject.new(player, EspInterface),
-			ChamObject.new(player, EspInterface),
-		}
-	end
-
-	local function removeObject(player)
-		local object = EspInterface._objectCache[player]
-		if object then
-			for i = 1, #object do
-				object[i]:Destruct()
-			end
-			EspInterface._objectCache[player] = nil
+		local function createObject(player)
+			pcall(function()
+				EspInterface._objectCache[player] = {
+					EspObject.new(player, EspInterface),
+					ChamObject.new(player, EspInterface),
+				}
+			end)
 		end
-	end
 
-	local plrs = players:GetPlayers()
-	for i = 2, #plrs do
-		createObject(plrs[i])
-	end
+		local function removeObject(player)
+			pcall(function()
+				local object = EspInterface._objectCache[player]
+				if object then
+					for i = 1, #object do
+						object[i]:Destruct()
+					end
+					EspInterface._objectCache[player] = nil
+				end
+			end)
+		end
 
-	EspInterface.playerAdded = players.PlayerAdded:Connect(createObject)
-	EspInterface.playerRemoving = players.PlayerRemoving:Connect(removeObject)
-	EspInterface._hasLoaded = true
+		local plrs = players:GetPlayers()
+		for i = 2, #plrs do
+			createObject(plrs[i])
+		end
+
+		EspInterface.playerAdded = players.PlayerAdded:Connect(createObject)
+		EspInterface.playerRemoving = players.PlayerRemoving:Connect(removeObject)
+		EspInterface._hasLoaded = true
+	end)
 end
 
 function EspInterface.Unload()
-	assert(EspInterface._hasLoaded, "Esp has not been loaded yet.")
+	pcall(function()
+		assert(EspInterface._hasLoaded, "Esp has not been loaded yet.")
 
-	for index, object in next, EspInterface._objectCache do
-		for i = 1, #object do
-			object[i]:Destruct()
+		for index, object in next, EspInterface._objectCache do
+			for i = 1, #object do
+				object[i]:Destruct()
+			end
+			EspInterface._objectCache[index] = nil
 		end
-		EspInterface._objectCache[index] = nil
-	end
 
-	EspInterface.playerAdded:Disconnect()
-	EspInterface.playerRemoving:Disconnect()
-	EspInterface._hasLoaded = false
+		EspInterface.playerAdded:Disconnect()
+		EspInterface.playerRemoving:Disconnect()
+		EspInterface._hasLoaded = false
+	end)
 end
 
 -- game specific functions

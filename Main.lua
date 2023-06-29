@@ -98,11 +98,13 @@ local function MainThreadFn()
 			Pascal:Reset()
 
 			-- Queue our script on teleport...
-			OnTeleportEventObject:Connect(function(State)
-				-- We don't care if it hasn't started yet...
-				if State ~= Enum.TeleportState.Started then
+			OnTeleportEventObject:Connect(function(State, PlaceId, SpawnName)
+				if State ~= Enum.TeleportState.RequestedFromServer then
 					return
 				end
+
+				-- Notify user...
+				Library:Notify("PascalCase is queuing itself on teleport...", 5.0)
 
 				-- Queue our script to run...
 				Pascal:GetMethods().QueueOnTeleport(Pascal:GetQueueScript())
