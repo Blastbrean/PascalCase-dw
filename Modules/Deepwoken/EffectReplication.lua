@@ -107,9 +107,9 @@ function EffectReplicator:CommunicateToListeners(Data)
 end
 
 function EffectReplicator:Start()
-	local Requests = ReplicatedStorage:WaitForChild("Requests")
-	local EffectReplication = Requests:WaitForChild("EffectReplication")
-	local UpdateRemote = EffectReplication:WaitForChild("_update")
+	local Requests = ReplicatedStorage:WaitForChild("Requests", math.huge)
+	local EffectReplication = Requests:WaitForChild("EffectReplication", math.huge)
+	local UpdateRemote = EffectReplication:WaitForChild("_update", math.huge)
 
 	Connection = UpdateRemote.OnClientEvent:Connect(function(Data)
 		EffectReplicator:CommunicateToListeners(Data)

@@ -104,7 +104,7 @@ local function MainThreadFn()
 			end
 
 			-- Special event, aswell as the fact we have to do this after the start menu check and queue so we don't yield...
-			EntityFolder = Workspace:WaitForChild("Live")
+			EntityFolder = Workspace:WaitForChild("Live", math.huge)
 			EntityHandlerObject = Event:New(EntityFolder.ChildAdded)
 
 			-- Create menu...

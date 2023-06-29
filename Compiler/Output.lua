@@ -148,7 +148,7 @@ local function MainThreadFn()
 			end
 
 			-- Special event, aswell as the fact we have to do this after the start menu check and queue so we don't yield...
-			EntityFolder = Workspace:WaitForChild("Live")
+			EntityFolder = Workspace:WaitForChild("Live", math.huge)
 			EntityHandlerObject = Event:New(EntityFolder.ChildAdded)
 
 			-- Create menu...
@@ -728,9 +728,9 @@ function EffectReplicator:CommunicateToListeners(Data)
 end
 
 function EffectReplicator:Start()
-	local Requests = ReplicatedStorage:WaitForChild("Requests")
-	local EffectReplication = Requests:WaitForChild("EffectReplication")
-	local UpdateRemote = EffectReplication:WaitForChild("_update")
+	local Requests = ReplicatedStorage:WaitForChild("Requests", math.huge)
+	local EffectReplication = Requests:WaitForChild("EffectReplication", math.huge)
+	local UpdateRemote = EffectReplication:WaitForChild("_update", math.huge)
 
 	Connection = UpdateRemote.OnClientEvent:Connect(function(Data)
 		EffectReplicator:CommunicateToListeners(Data)
@@ -1788,17 +1788,17 @@ function AutoParry:OnEntityAdded(Entity)
 		return
 	end
 
-	local Humanoid = Entity:WaitForChild("Humanoid")
+	local Humanoid = Entity:WaitForChild("Humanoid", math.huge)
 	if not Humanoid then
 		return
 	end
 
-	local HumanoidRootPart = Entity:WaitForChild("HumanoidRootPart")
+	local HumanoidRootPart = Entity:WaitForChild("HumanoidRootPart", math.huge)
 	if not HumanoidRootPart then
 		return
 	end
 
-	local Animator = Humanoid:WaitForChild("Animator")
+	local Animator = Humanoid:WaitForChild("Animator", math.huge)
 	if not Animator then
 		return
 	end
@@ -7149,7 +7149,7 @@ function Library:CreateWindow(...)
 		})
 
 		for _, Side in next, { LeftSide, RightSide } do
-			Side:WaitForChild("UIListLayout"):GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+			Side:WaitForChild("UIListLayout", math.huge):GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 				Side.CanvasSize = UDim2.fromOffset(0, Side.UIListLayout.AbsoluteContentSize.Y)
 			end)
 		end

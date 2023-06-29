@@ -1013,17 +1013,17 @@ function AutoParry:OnEntityAdded(Entity)
 		return
 	end
 
-	local Humanoid = Entity:WaitForChild("Humanoid")
+	local Humanoid = Entity:WaitForChild("Humanoid", math.huge)
 	if not Humanoid then
 		return
 	end
 
-	local HumanoidRootPart = Entity:WaitForChild("HumanoidRootPart")
+	local HumanoidRootPart = Entity:WaitForChild("HumanoidRootPart", math.huge)
 	if not HumanoidRootPart then
 		return
 	end
 
-	local Animator = Humanoid:WaitForChild("Animator")
+	local Animator = Humanoid:WaitForChild("Animator", math.huge)
 	if not Animator then
 		return
 	end

@@ -3332,7 +3332,7 @@ function Library:CreateWindow(...)
 		})
 
 		for _, Side in next, { LeftSide, RightSide } do
-			Side:WaitForChild("UIListLayout"):GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+			Side:WaitForChild("UIListLayout", math.huge):GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 				Side.CanvasSize = UDim2.fromOffset(0, Side.UIListLayout.AbsoluteContentSize.Y)
 			end)
 		end
