@@ -1160,12 +1160,12 @@ function AutoParry.ValidateState(
 	end
 
 	-- Is our animaton still playing?
-	if not AnimationTrack.IsPlaying then
+	if not BuilderData.ActivateOnEnd and not AnimationTrack.IsPlaying then
 		return false
 	end
 
 	-- Did they feint?
-	if AutoParry.SoundFeint or AutoParry.AnimationFeint then
+	if not BuilderData.ActivateOnEnd and (AutoParry.SoundFeint or AutoParry.AnimationFeint) then
 		return false
 	end
 
@@ -1375,7 +1375,14 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 
 	-- Check if we have activate on end on...
 	if BuilderData.ActivateOnEnd then
-		Library:Notify("Delaying on animation %s(%s) until animation ends...", 2.0)
+		Library:Notify(
+			string.format(
+				"Delaying on animation %s(%s) until animation ends...",
+				BuilderData.NickName,
+				BuilderData.AnimationId
+			),
+			2.0
+		)
 
 		-- Wait until animation end...
 		repeat
@@ -1508,47 +1515,44 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 	-- Spawn a task that checks for feints...
 	task.spawn(CheckForAnimationFeint)
 
-	-- Notify user that animation has started
-	if not IsEndAnimation then
-		-- Get delay
-		local CurrentDelay = CalculateCurrentDelay()
+	-- Get delay
+	local CurrentDelay = CalculateCurrentDelay()
 
-		-- Notify
+	-- Notify
+	Library:Notify(
+		string.format(
+			"Delaying on animation %s(%s) for %.3f seconds",
+			BuilderData.NickName,
+			BuilderData.AnimationId,
+			CurrentDelay.AttemptDelay
+		),
+		2.0
+	)
+
+	-- Wait for delay to occur
+	local DelayResult = AutoParry.DelayAndValidateStateFn(
+		CurrentDelay.AttemptDelay,
+		AnimationTrack,
+		BuilderData,
+		LocalPlayerData,
+		HumanoidRootPart,
+		Humanoid,
+		Player,
+		false
+	)
+
+	if not DelayResult then
+		-- Notify user that delay has failed
 		Library:Notify(
 			string.format(
-				"Delaying on animation %s(%s) for %.3f seconds",
+				"Failed delay on animation %s(%s) due to state validation",
 				BuilderData.NickName,
-				BuilderData.AnimationId,
-				CurrentDelay.AttemptDelay
+				BuilderData.AnimationId
 			),
 			2.0
 		)
 
-		-- Wait for delay to occur
-		local DelayResult = AutoParry.DelayAndValidateStateFn(
-			CurrentDelay.AttemptDelay,
-			AnimationTrack,
-			BuilderData,
-			LocalPlayerData,
-			HumanoidRootPart,
-			Humanoid,
-			Player,
-			false
-		)
-
-		if not DelayResult then
-			-- Notify user that delay has failed
-			Library:Notify(
-				string.format(
-					"Failed delay on animation %s(%s) due to state validation",
-					BuilderData.NickName,
-					BuilderData.AnimationId
-				),
-				2.0
-			)
-
-			return
-		end
+		return
 	end
 
 	if
@@ -1591,7 +1595,7 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 				true
 			)
 
-			if not RepeatDelayResult and not IsEndAnimation then
+			if not RepeatDelayResult then
 				-- Notify user that delay has failed
 				Library:Notify(
 					string.format(
@@ -1652,7 +1656,7 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 				true
 			)
 
-			if not RepeatDelayResult and not IsEndAnimation then
+			if not RepeatDelayResult then
 				-- Notify user that delay has failed
 				Library:Notify(
 					string.format(
@@ -2546,6 +2550,7 @@ function CombatTab:AutoParryGroup()
 
 	SubTab1:AddToggle("ActivateOnEnd", {
 		Text = "Only activate on end",
+		Tooltip = "Misleading, as this will simply run auto-parry at the end of an animation (including delay), if you want to only activate on end, run with no delay.",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
 			Pascal:GetConfig().AutoParryBuilder.ActivateOnEnd = Value

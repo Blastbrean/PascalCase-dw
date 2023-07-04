@@ -278,6 +278,7 @@ function CombatTab:AutoParryGroup()
 
 	SubTab1:AddToggle("ActivateOnEnd", {
 		Text = "Only activate on end",
+		Tooltip = "Misleading, as this will simply run auto-parry at the end of an animation (including delay), if you want to only activate on end, run with no delay.",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
 			Pascal:GetConfig().AutoParryBuilder.ActivateOnEnd = Value
