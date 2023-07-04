@@ -6,7 +6,7 @@ function Logger:Print(String, ...)
 	local FormatString = string.format(String, ...)
 
 	-- Print using rconsoleprint
-	rconsoleprint(FormatString)
+	rconsoleprint(FormatString .. "\n")
 
 	-- Add to current log our current string
 	table.insert(self.CurrentLog, FormatString)

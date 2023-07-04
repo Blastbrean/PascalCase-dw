@@ -6,7 +6,8 @@ end
 
 -- Global service function (cloneref)
 getgenv().GetService = function(ServiceName)
-	return cloneref(game:GetService(ServiceName))
+	local Game = cloneref(game)
+	return cloneref(Game:GetService(ServiceName))
 end
 
 -- Services

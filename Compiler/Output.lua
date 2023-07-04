@@ -50,7 +50,8 @@ end
 
 -- Global service function (cloneref)
 getgenv().GetService = function(ServiceName)
-	return cloneref(game:GetService(ServiceName))
+	local Game = cloneref(game)
+	return cloneref(Game:GetService(ServiceName))
 end
 
 -- Services
@@ -241,7 +242,6 @@ local Methods = {
 	GetUpValue = getupvalue or debug.getupvalue,
 	GetUpValues = getupvalues or debug.getupvalues,
 	SetUpValue = setupvalue or debug.setupvalue,
-	IsWindowActive = iswindowactive,
 	Mouse2Press = mouse2press,
 	Mouse2Release = mouse2release,
 	KeyPress = keypress,
@@ -749,7 +749,7 @@ function Logger:Print(String, ...)
 	local FormatString = string.format(String, ...)
 
 	-- Print using rconsoleprint
-	rconsoleprint(FormatString)
+	rconsoleprint(FormatString .. "\n")
 
 	-- Add to current log our current string
 	table.insert(self.CurrentLog, FormatString)
@@ -777,9 +777,10 @@ __bundle_register("Features/AutoParry", function(require, _LOADED, __bundle_regi
 local AutoParry = {
 	EntityData = {},
 	Connections = {},
-	PlayerFeint = {},
-	CanLocalPlayerFeint = true,
+	CanLocalPlayerFeint = false,
 	TimeWhenOutOfRange = nil,
+	AnimationFeint = false,
+	SoundFeint = false,
 }
 
 -- Services
@@ -862,12 +863,6 @@ function AutoParry.RunDodgeFn(Entity, ShouldRollCancel, RollCancelDelay)
 			-- Calculate delay...
 			local AttemptMilisecondsConvertedToSeconds = RollCancelDelay / 1000 or 0
 
-			-- Notify user...
-			Library:Notify(
-				string.format("Delaying on roll-cancel for %.3f seconds...", AttemptMilisecondsConvertedToSeconds),
-				2.0
-			)
-
 			-- Delay script before sending another
 			Pascal:GetMethods().Wait(AttemptMilisecondsConvertedToSeconds)
 
@@ -882,9 +877,6 @@ function AutoParry.RunDodgeFn(Entity, ShouldRollCancel, RollCancelDelay)
 
 			-- Send mouse event to unpress key
 			Pascal:GetMethods().Mouse2Release()
-
-			-- End with notification
-			Library:Notify("Successfully roll-cancelled...", 2.0)
 		end
 
 		return
@@ -1097,12 +1089,6 @@ function AutoParry.ValidateState(
 		return false
 	end
 
-	if not Pascal:GetMethods().IsWindowActive() then
-		-- Notify user that we cannot run auto-parry
-		Library:Notify("Cannot run auto-parry, the window is not active...", 2.0)
-		return false
-	end
-
 	-- Effect handling...
 	local EffectReplicator = Pascal:GetEffectReplicator()
 
@@ -1178,8 +1164,8 @@ function AutoParry.ValidateState(
 		return false
 	end
 
-	-- Did this player feint?
-	if AutoParry.PlayerFeint[Player] then
+	-- Did they feint?
+	if AutoParry.SoundFeint or AutoParry.AnimationFeint then
 		return false
 	end
 
@@ -1337,23 +1323,12 @@ function AutoParry:GetBuilderData(AnimationId)
 	return BuilderSettingsList[AnimationId]
 end
 
-function AutoParry:OnAnimationEnded(EntityData)
-	-- Handle activate on end for auto parry
-	AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid, true)
-
+function AutoParry:OnAnimationEnded(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid)
 	-- Handle block states for player data
 	AutoParry.EndBlockingStates(EntityData)
 end
 
-function AutoParry:MainAutoParry(
-	EntityData,
-	AnimationTrack,
-	Animation,
-	Player,
-	HumanoidRootPart,
-	Humanoid,
-	IsEndAnimation
-)
+function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid)
 	if not HumanoidRootPart then
 		return
 	end
@@ -1389,6 +1364,9 @@ function AutoParry:MainAutoParry(
 		return
 	end
 
+	-- Save start timestamp...
+	local StartTimeStamp = Pascal:GetMethods().ExecutionClock()
+
 	-- Get animation data (this should always work)
 	local AnimationData = AutoParry:EmplaceAnimationToData(EntityData, AnimationTrack, Animation.AnimationId)
 	if not AnimationData then
@@ -1396,8 +1374,13 @@ function AutoParry:MainAutoParry(
 	end
 
 	-- Check if we have activate on end on...
-	if BuilderData.ActivateOnEnd and not IsEndAnimation then
-		return
+	if BuilderData.ActivateOnEnd then
+		Library:Notify("Delaying on animation %s(%s) until animation ends...", 2.0)
+
+		-- Wait until animation end...
+		repeat
+			Pascal:GetMethods().Wait()
+		until not AnimationTrack.IsPlaying
 	end
 
 	-- Validate current auto-parry state is OK
@@ -1463,15 +1446,67 @@ function AutoParry:MainAutoParry(
 
 		local AttemptDelayAccountingForPingAdjustment =
 			Pascal:GetMethods().Max(AttemptMilisecondsConvertedToSeconds - PingAdjustmentAmount, 0.0)
-			
+
 		-- Reset time when out of range...
 		AutoParry.TimeWhenOutOfRange = nil
-		
+
 		return {
 			AttemptDelay = AttemptDelayAccountingForPingAdjustment,
 			RepeatDelay = RepeatDelayAccountingForPingAdjustment,
 		}
 	end
+
+	local function CheckForAnimationFeint()
+		Helper.TryAndCatch(
+			-- Try...
+			function()
+				-- Reset flag...
+				if AutoParry.AnimationFeint then
+					AutoParry.AnimationFeint = false
+				end
+
+				-- Wait until animation ends...
+				repeat
+					Pascal:GetMethods().Wait()
+				until not AnimationTrack.IsPlaying
+
+				-- Check if the parry sound is playing...
+				local Parried = AutoParry.FindSound(LocalPlayerData.HumanoidRootPart, "Parried")
+				if Parried and Parried.IsPlaying then
+					return false
+				end
+
+				-- Calculate feint threshold...
+				local Threshold = math.clamp(AnimationTrack.Length / AnimationTrack.Speed, 0.0, 10.0)
+				if AnimationTrack.Length == 0 then
+					Threshold = 0.3
+				end
+
+				-- Lessen threshold by a factor (tis magic)...
+				Threshold = Threshold * 0.75
+
+				-- Check if the difference between the start and end is too long...
+				local StartEndDifference = Pascal:GetMethods().ExecutionClock() - StartTimeStamp
+				if (StartEndDifference * 10) > Threshold then
+					return false
+				end
+
+				-- Flag...
+				AutoParry.AnimationFeinted = true
+
+				-- It is a feint...
+				return AutoParry.OnAnimationFeint(LocalPlayerData, HumanoidRootPart, Player)
+			end,
+
+			-- Catch...
+			function(Error)
+				Pascal:GetLogger():Print("AutoParry.CheckForAnimationFeint - Caught exception: %s", Error)
+			end
+		)
+	end
+
+	-- Spawn a task that checks for feints...
+	task.spawn(CheckForAnimationFeint)
 
 	-- Notify user that animation has started
 	if not IsEndAnimation then
@@ -1566,8 +1601,6 @@ function AutoParry:MainAutoParry(
 					),
 					2.0
 				)
-
-				return
 			end
 
 			-- Increment index
@@ -1629,8 +1662,6 @@ function AutoParry:MainAutoParry(
 					),
 					2.0
 				)
-
-				return
 			end
 		end
 
@@ -1689,11 +1720,11 @@ function AutoParry:MainAutoParry(
 end
 
 function AutoParry:OnAnimationPlayed(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid)
-	AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid, false)
+	AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid)
 end
 
-function AutoParry.OnPlayerFeint(LocalPlayerData, HumanoidRootPart, Player)
-	if not Player or not LocalPlayerData.HumanoidRootPart or not HumanoidRootPart then
+function AutoParry.OnAnimationFeint(LocalPlayerData, HumanoidRootPart, Player)
+	if not LocalPlayerData.HumanoidRootPart or not HumanoidRootPart then
 		return
 	end
 
@@ -1729,12 +1760,12 @@ function AutoParry.OnPlayerFeint(LocalPlayerData, HumanoidRootPart, Player)
 		and Player ~= LocalPlayerData.Player
 	then
 		-- Notify user...
-		Library:Notify(string.format("Caught feint on player %s, unable to dodge...", Player.Name), 2.0)
+		Library:Notify("Caught animation-feint, unable to dodge...", 2.0)
 		return
 	end
 
 	-- Notify user...
-	Library:Notify(string.format("Caught feint on player %s, dodging feint...", Player.Name), 2.0)
+	Library:Notify("Caught animation-feint, dodging feint...", 2.0)
 
 	-- Start dodging...
 	AutoParry.RunDodgeFn(
@@ -1744,14 +1775,72 @@ function AutoParry.OnPlayerFeint(LocalPlayerData, HumanoidRootPart, Player)
 	)
 
 	-- Notify user...
-	Library:Notify(string.format("Successfully dodged feint on player %s", Player.Name), 2.0)
-
-	-- Flag player...
-	AutoParry.PlayerFeint[Player] = true
+	Library:Notify("Successfully dodged animation-feint...", 2.0)
 end
 
-function AutoParry.OnPlayerFeintEnd(Player)
-	AutoParry.PlayerFeint[Player] = false
+function AutoParry.OnFeintSound(LocalPlayerData, HumanoidRootPart, Player)
+	if not LocalPlayerData.HumanoidRootPart or not HumanoidRootPart then
+		return
+	end
+
+	-- Check if we are supposed to be doing this
+	if not Pascal:GetConfig().AutoParry.RollOnFeints then
+		return
+	end
+
+	-- Check feint distance
+	if
+		not AutoParry.CheckDistanceBetweenParts({
+			MinimumDistance = Pascal:GetConfig().AutoParry.MinimumFeintDistance,
+			MaximumDistance = Pascal:GetConfig().AutoParry.MaximumFeintDistance,
+		}, HumanoidRootPart, LocalPlayerData.HumanoidRootPart) and Player ~= LocalPlayerData.Player
+	then
+		return
+	end
+
+	-- Check if players are facing each-other
+	if
+		not AutoParry.CheckFacingThresholdOnPlayers(LocalPlayerData, HumanoidRootPart)
+		and Player ~= LocalPlayerData.Player
+	then
+		return
+	end
+
+	-- Effect handling...
+	local EffectReplicator = Pascal:GetEffectReplicator()
+
+	-- Check if we can roll
+	if
+		not AutoParry.CanRoll(LocalPlayerData, HumanoidRootPart, EffectReplicator)
+		and Player ~= LocalPlayerData.Player
+	then
+		-- Notify user...
+		Library:Notify("Caught sound-feint, unable to dodge...", 2.0)
+		return
+	end
+
+	-- Notify user...
+	Library:Notify("Caught sound-feint, dodging feint...", 2.0)
+
+	-- Flag...
+	AutoParry.SoundFeint = true
+
+	-- Start dodging...
+	AutoParry.RunDodgeFn(
+		Entity,
+		Pascal:GetConfig().AutoParry.ShouldRollCancel,
+		Pascal:GetConfig().AutoParry.RollCancelDelay
+	)
+
+	-- Notify user...
+	Library:Notify("Successfully dodged sound-feint...", 2.0)
+end
+
+function AutoParry.OnFeintSoundEnd()
+	-- Remove flag...
+	if AutoParry.SoundFeint then
+		AutoParry.SoundFeint = false
+	end
 end
 
 function AutoParry.OnLocalPlayerSwingSound()
@@ -1842,12 +1931,12 @@ function AutoParry:OnEntityAdded(Entity)
 							return
 						end
 
-						AutoParry.OnPlayerFeint(LocalPlayerData, HumanoidRootPart, Player)
+						AutoParry.OnFeintSound(LocalPlayerData, HumanoidRootPart, Player)
 					end,
 
 					-- Catch...
 					function(Error)
-						Pascal:GetLogger():Print("AutoParry.OnPlayerFeint - Caught exception: %s", Error)
+						Pascal:GetLogger():Print("AutoParry.OnFeintSound - Caught exception: %s", Error)
 					end
 				)
 			end)
@@ -1859,12 +1948,12 @@ function AutoParry:OnEntityAdded(Entity)
 				Helper.TryAndCatch(
 					-- Try...
 					function()
-						AutoParry.OnPlayerFeintEnd(Player)
+						AutoParry.OnFeintSoundEnd()
 					end,
 
 					-- Catch...
 					function(Error)
-						Pascal:GetLogger():Print("AutoParry.OnPlayerFeintEnd - Caught exception: %s", Error)
+						Pascal:GetLogger():Print("AutoParry.OnFeintSoundEnd - Caught exception: %s", Error)
 					end
 				)
 			end)
@@ -4251,16 +4340,6 @@ do
 			Parent = ToggleLabel,
 		})
 
-		-- Transparency image taken from https://github.com/matas3535/SplixPrivateDrawingLibrary/blob/main/Library.lua cus i'm lazy
-		local CheckerFrame = Library:Create("ImageLabel", {
-			BorderSizePixel = 0,
-			Size = UDim2.new(0, 27, 0, 13),
-			ZIndex = 5,
-			Image = "http://www.roblox.com/asset/?id=12977615774",
-			Visible = not not Info.Transparency,
-			Parent = DisplayFrame,
-		})
-
 		-- 1/16/23
 		-- Rewrote this to be placed inside the Library ScreenGui
 		-- There was some issue which caused RelativeOffset to be way off
@@ -4299,6 +4378,14 @@ do
 			Parent = PickerFrameInner,
 		})
 
+		local SatVibMap = Library:Create("ImageLabel", {
+			BorderSizePixel = 0,
+			Size = UDim2.new(1, 0, 1, 0),
+			ZIndex = 18,
+			Image = "",
+			Parent = SatVibMapInner,
+		})
+
 		local SatVibMapOuter = Library:Create("Frame", {
 			BorderColor3 = Color3.new(0, 0, 0),
 			Position = UDim2.new(0, 4, 0, 25),
@@ -4314,33 +4401,6 @@ do
 			Size = UDim2.new(1, 0, 1, 0),
 			ZIndex = 18,
 			Parent = SatVibMapOuter,
-		})
-
-		local SatVibMap = Library:Create("ImageLabel", {
-			BorderSizePixel = 0,
-			Size = UDim2.new(1, 0, 1, 0),
-			ZIndex = 18,
-			Image = "rbxassetid://4155801252",
-			Parent = SatVibMapInner,
-		})
-
-		local CursorOuter = Library:Create("ImageLabel", {
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Size = UDim2.new(0, 6, 0, 6),
-			BackgroundTransparency = 1,
-			Image = "http://www.roblox.com/asset/?id=9619665977",
-			ImageColor3 = Color3.new(0, 0, 0),
-			ZIndex = 19,
-			Parent = SatVibMap,
-		})
-
-		local CursorInner = Library:Create("ImageLabel", {
-			Size = UDim2.new(0, CursorOuter.Size.X.Offset - 2, 0, CursorOuter.Size.Y.Offset - 2),
-			Position = UDim2.new(0, 1, 0, 1),
-			BackgroundTransparency = 1,
-			Image = "http://www.roblox.com/asset/?id=9619665977",
-			ZIndex = 20,
-			Parent = CursorOuter,
 		})
 
 		local HueSelectorOuter = Library:Create("Frame", {
@@ -4437,14 +4497,6 @@ do
 			})
 
 			Library:AddToRegistry(TransparencyBoxInner, { BorderColor3 = "OutlineColor" })
-
-			Library:Create("ImageLabel", {
-				BackgroundTransparency = 1,
-				Size = UDim2.new(1, 0, 1, 0),
-				Image = "http://www.roblox.com/asset/?id=12978095818",
-				ZIndex = 20,
-				Parent = TransparencyBoxInner,
-			})
 		end
 
 		local DisplayLabel = Library:CreateLabel({
@@ -4641,8 +4693,6 @@ do
 			if TransparencyBoxInner then
 				TransparencyBoxInner.BackgroundColor3 = ColorPicker.Value
 			end
-
-			CursorOuter.Position = UDim2.new(ColorPicker.Sat, 0, 1 - ColorPicker.Vib, 0)
 
 			HueBox.Text = "#" .. ColorPicker.Value:ToHex()
 			RgbBox.Text = table.concat({
@@ -6037,16 +6087,6 @@ do
 			Parent = DropdownInner,
 		})
 
-		local DropdownArrow = Library:Create("ImageLabel", {
-			AnchorPoint = Vector2.new(0, 0.5),
-			BackgroundTransparency = 1,
-			Position = UDim2.new(1, -16, 0.5, 0),
-			Size = UDim2.new(0, 12, 0, 12),
-			Image = "http://www.roblox.com/asset/?id=6282522798",
-			ZIndex = 8,
-			Parent = DropdownInner,
-		})
-
 		local ItemList = Library:CreateLabel({
 			Position = UDim2.new(0, 5, 0, 0),
 			Size = UDim2.new(1, -5, 1, 0),
@@ -6274,13 +6314,11 @@ do
 		function Dropdown:OpenDropdown()
 			ListOuter.Visible = true
 			Library.OpenedFrames[ListOuter] = true
-			DropdownArrow.Rotation = 180
 		end
 
 		function Dropdown:CloseDropdown()
 			ListOuter.Visible = false
 			Library.OpenedFrames[ListOuter] = nil
-			DropdownArrow.Rotation = 0
 		end
 
 		function Dropdown:OnChanged(Func)
@@ -6813,9 +6851,11 @@ function Library:UpdateInfoLoggerBlacklist(BlacklistList)
 		end
 
 		if
-			getgenv().Settings.AutoParryLogging.BlockLogged
-			and not getgenv().Settings.AutoParryBuilder.BuilderSettingsList[RegistryValue.AnimationId]
-			and not BlacklistList[RegistryValue.AnimationId]
+			not BlacklistList[RegistryValue.AnimationId]
+			and not (
+				getgenv().Settings.AutoParryLogging.BlockLogged
+				and getgenv().Settings.AutoParryBuilder.BuilderSettingsList[AnimationId]
+			)
 		then
 			continue
 		end
@@ -7149,7 +7189,7 @@ function Library:CreateWindow(...)
 		})
 
 		for _, Side in next, { LeftSide, RightSide } do
-			Side:WaitForChild("UIListLayout", math.huge):GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+			Side:WaitForChild("UIListLayout"):GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 				Side.CanvasSize = UDim2.fromOffset(0, Side.UIListLayout.AbsoluteContentSize.Y)
 			end)
 		end
@@ -7564,7 +7604,9 @@ end
 Players.PlayerAdded:Connect(OnPlayerChange)
 Players.PlayerRemoving:Connect(OnPlayerChange)
 
+Library.NotifyOnError = true
 getgenv().Library = Library
+
 return Library
 
 end)

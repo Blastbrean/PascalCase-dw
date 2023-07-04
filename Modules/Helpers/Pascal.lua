@@ -14,7 +14,6 @@ local Methods = {
 	GetUpValue = getupvalue or debug.getupvalue,
 	GetUpValues = getupvalues or debug.getupvalues,
 	SetUpValue = setupvalue or debug.setupvalue,
-	IsWindowActive = iswindowactive,
 	Mouse2Press = mouse2press,
 	Mouse2Release = mouse2release,
 	KeyPress = keypress,

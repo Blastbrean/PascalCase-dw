@@ -2,9 +2,10 @@
 local AutoParry = {
 	EntityData = {},
 	Connections = {},
-	PlayerFeint = {},
-	CanLocalPlayerFeint = true,
+	CanLocalPlayerFeint = false,
 	TimeWhenOutOfRange = nil,
+	AnimationFeint = false,
+	SoundFeint = false,
 }
 
 -- Services
@@ -87,12 +88,6 @@ function AutoParry.RunDodgeFn(Entity, ShouldRollCancel, RollCancelDelay)
 			-- Calculate delay...
 			local AttemptMilisecondsConvertedToSeconds = RollCancelDelay / 1000 or 0
 
-			-- Notify user...
-			Library:Notify(
-				string.format("Delaying on roll-cancel for %.3f seconds...", AttemptMilisecondsConvertedToSeconds),
-				2.0
-			)
-
 			-- Delay script before sending another
 			Pascal:GetMethods().Wait(AttemptMilisecondsConvertedToSeconds)
 
@@ -107,9 +102,6 @@ function AutoParry.RunDodgeFn(Entity, ShouldRollCancel, RollCancelDelay)
 
 			-- Send mouse event to unpress key
 			Pascal:GetMethods().Mouse2Release()
-
-			-- End with notification
-			Library:Notify("Successfully roll-cancelled...", 2.0)
 		end
 
 		return
@@ -322,12 +314,6 @@ function AutoParry.ValidateState(
 		return false
 	end
 
-	if not Pascal:GetMethods().IsWindowActive() then
-		-- Notify user that we cannot run auto-parry
-		Library:Notify("Cannot run auto-parry, the window is not active...", 2.0)
-		return false
-	end
-
 	-- Effect handling...
 	local EffectReplicator = Pascal:GetEffectReplicator()
 
@@ -403,8 +389,8 @@ function AutoParry.ValidateState(
 		return false
 	end
 
-	-- Did this player feint?
-	if AutoParry.PlayerFeint[Player] then
+	-- Did they feint?
+	if AutoParry.SoundFeint or AutoParry.AnimationFeint then
 		return false
 	end
 
@@ -562,23 +548,12 @@ function AutoParry:GetBuilderData(AnimationId)
 	return BuilderSettingsList[AnimationId]
 end
 
-function AutoParry:OnAnimationEnded(EntityData)
-	-- Handle activate on end for auto parry
-	AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid, true)
-
+function AutoParry:OnAnimationEnded(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid)
 	-- Handle block states for player data
 	AutoParry.EndBlockingStates(EntityData)
 end
 
-function AutoParry:MainAutoParry(
-	EntityData,
-	AnimationTrack,
-	Animation,
-	Player,
-	HumanoidRootPart,
-	Humanoid,
-	IsEndAnimation
-)
+function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid)
 	if not HumanoidRootPart then
 		return
 	end
@@ -614,6 +589,9 @@ function AutoParry:MainAutoParry(
 		return
 	end
 
+	-- Save start timestamp...
+	local StartTimeStamp = Pascal:GetMethods().ExecutionClock()
+
 	-- Get animation data (this should always work)
 	local AnimationData = AutoParry:EmplaceAnimationToData(EntityData, AnimationTrack, Animation.AnimationId)
 	if not AnimationData then
@@ -621,8 +599,13 @@ function AutoParry:MainAutoParry(
 	end
 
 	-- Check if we have activate on end on...
-	if BuilderData.ActivateOnEnd and not IsEndAnimation then
-		return
+	if BuilderData.ActivateOnEnd then
+		Library:Notify("Delaying on animation %s(%s) until animation ends...", 2.0)
+
+		-- Wait until animation end...
+		repeat
+			Pascal:GetMethods().Wait()
+		until not AnimationTrack.IsPlaying
 	end
 
 	-- Validate current auto-parry state is OK
@@ -688,15 +671,67 @@ function AutoParry:MainAutoParry(
 
 		local AttemptDelayAccountingForPingAdjustment =
 			Pascal:GetMethods().Max(AttemptMilisecondsConvertedToSeconds - PingAdjustmentAmount, 0.0)
-			
+
 		-- Reset time when out of range...
 		AutoParry.TimeWhenOutOfRange = nil
-		
+
 		return {
 			AttemptDelay = AttemptDelayAccountingForPingAdjustment,
 			RepeatDelay = RepeatDelayAccountingForPingAdjustment,
 		}
 	end
+
+	local function CheckForAnimationFeint()
+		Helper.TryAndCatch(
+			-- Try...
+			function()
+				-- Reset flag...
+				if AutoParry.AnimationFeint then
+					AutoParry.AnimationFeint = false
+				end
+
+				-- Wait until animation ends...
+				repeat
+					Pascal:GetMethods().Wait()
+				until not AnimationTrack.IsPlaying
+
+				-- Check if the parry sound is playing...
+				local Parried = AutoParry.FindSound(LocalPlayerData.HumanoidRootPart, "Parried")
+				if Parried and Parried.IsPlaying then
+					return false
+				end
+
+				-- Calculate feint threshold...
+				local Threshold = math.clamp(AnimationTrack.Length / AnimationTrack.Speed, 0.0, 10.0)
+				if AnimationTrack.Length == 0 then
+					Threshold = 0.3
+				end
+
+				-- Lessen threshold by a factor (tis magic)...
+				Threshold = Threshold * 0.75
+
+				-- Check if the difference between the start and end is too long...
+				local StartEndDifference = Pascal:GetMethods().ExecutionClock() - StartTimeStamp
+				if (StartEndDifference * 10) > Threshold then
+					return false
+				end
+
+				-- Flag...
+				AutoParry.AnimationFeinted = true
+
+				-- It is a feint...
+				return AutoParry.OnAnimationFeint(LocalPlayerData, HumanoidRootPart, Player)
+			end,
+
+			-- Catch...
+			function(Error)
+				Pascal:GetLogger():Print("AutoParry.CheckForAnimationFeint - Caught exception: %s", Error)
+			end
+		)
+	end
+
+	-- Spawn a task that checks for feints...
+	task.spawn(CheckForAnimationFeint)
 
 	-- Notify user that animation has started
 	if not IsEndAnimation then
@@ -791,8 +826,6 @@ function AutoParry:MainAutoParry(
 					),
 					2.0
 				)
-
-				return
 			end
 
 			-- Increment index
@@ -854,8 +887,6 @@ function AutoParry:MainAutoParry(
 					),
 					2.0
 				)
-
-				return
 			end
 		end
 
@@ -914,11 +945,11 @@ function AutoParry:MainAutoParry(
 end
 
 function AutoParry:OnAnimationPlayed(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid)
-	AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid, false)
+	AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid)
 end
 
-function AutoParry.OnPlayerFeint(LocalPlayerData, HumanoidRootPart, Player)
-	if not Player or not LocalPlayerData.HumanoidRootPart or not HumanoidRootPart then
+function AutoParry.OnAnimationFeint(LocalPlayerData, HumanoidRootPart, Player)
+	if not LocalPlayerData.HumanoidRootPart or not HumanoidRootPart then
 		return
 	end
 
@@ -954,12 +985,12 @@ function AutoParry.OnPlayerFeint(LocalPlayerData, HumanoidRootPart, Player)
 		and Player ~= LocalPlayerData.Player
 	then
 		-- Notify user...
-		Library:Notify(string.format("Caught feint on player %s, unable to dodge...", Player.Name), 2.0)
+		Library:Notify("Caught animation-feint, unable to dodge...", 2.0)
 		return
 	end
 
 	-- Notify user...
-	Library:Notify(string.format("Caught feint on player %s, dodging feint...", Player.Name), 2.0)
+	Library:Notify("Caught animation-feint, dodging feint...", 2.0)
 
 	-- Start dodging...
 	AutoParry.RunDodgeFn(
@@ -969,14 +1000,72 @@ function AutoParry.OnPlayerFeint(LocalPlayerData, HumanoidRootPart, Player)
 	)
 
 	-- Notify user...
-	Library:Notify(string.format("Successfully dodged feint on player %s", Player.Name), 2.0)
-
-	-- Flag player...
-	AutoParry.PlayerFeint[Player] = true
+	Library:Notify("Successfully dodged animation-feint...", 2.0)
 end
 
-function AutoParry.OnPlayerFeintEnd(Player)
-	AutoParry.PlayerFeint[Player] = false
+function AutoParry.OnFeintSound(LocalPlayerData, HumanoidRootPart, Player)
+	if not LocalPlayerData.HumanoidRootPart or not HumanoidRootPart then
+		return
+	end
+
+	-- Check if we are supposed to be doing this
+	if not Pascal:GetConfig().AutoParry.RollOnFeints then
+		return
+	end
+
+	-- Check feint distance
+	if
+		not AutoParry.CheckDistanceBetweenParts({
+			MinimumDistance = Pascal:GetConfig().AutoParry.MinimumFeintDistance,
+			MaximumDistance = Pascal:GetConfig().AutoParry.MaximumFeintDistance,
+		}, HumanoidRootPart, LocalPlayerData.HumanoidRootPart) and Player ~= LocalPlayerData.Player
+	then
+		return
+	end
+
+	-- Check if players are facing each-other
+	if
+		not AutoParry.CheckFacingThresholdOnPlayers(LocalPlayerData, HumanoidRootPart)
+		and Player ~= LocalPlayerData.Player
+	then
+		return
+	end
+
+	-- Effect handling...
+	local EffectReplicator = Pascal:GetEffectReplicator()
+
+	-- Check if we can roll
+	if
+		not AutoParry.CanRoll(LocalPlayerData, HumanoidRootPart, EffectReplicator)
+		and Player ~= LocalPlayerData.Player
+	then
+		-- Notify user...
+		Library:Notify("Caught sound-feint, unable to dodge...", 2.0)
+		return
+	end
+
+	-- Notify user...
+	Library:Notify("Caught sound-feint, dodging feint...", 2.0)
+
+	-- Flag...
+	AutoParry.SoundFeint = true
+
+	-- Start dodging...
+	AutoParry.RunDodgeFn(
+		Entity,
+		Pascal:GetConfig().AutoParry.ShouldRollCancel,
+		Pascal:GetConfig().AutoParry.RollCancelDelay
+	)
+
+	-- Notify user...
+	Library:Notify("Successfully dodged sound-feint...", 2.0)
+end
+
+function AutoParry.OnFeintSoundEnd()
+	-- Remove flag...
+	if AutoParry.SoundFeint then
+		AutoParry.SoundFeint = false
+	end
 end
 
 function AutoParry.OnLocalPlayerSwingSound()
@@ -1067,12 +1156,12 @@ function AutoParry:OnEntityAdded(Entity)
 							return
 						end
 
-						AutoParry.OnPlayerFeint(LocalPlayerData, HumanoidRootPart, Player)
+						AutoParry.OnFeintSound(LocalPlayerData, HumanoidRootPart, Player)
 					end,
 
 					-- Catch...
 					function(Error)
-						Pascal:GetLogger():Print("AutoParry.OnPlayerFeint - Caught exception: %s", Error)
+						Pascal:GetLogger():Print("AutoParry.OnFeintSound - Caught exception: %s", Error)
 					end
 				)
 			end)
@@ -1084,12 +1173,12 @@ function AutoParry:OnEntityAdded(Entity)
 				Helper.TryAndCatch(
 					-- Try...
 					function()
-						AutoParry.OnPlayerFeintEnd(Player)
+						AutoParry.OnFeintSoundEnd()
 					end,
 
 					-- Catch...
 					function(Error)
-						Pascal:GetLogger():Print("AutoParry.OnPlayerFeintEnd - Caught exception: %s", Error)
+						Pascal:GetLogger():Print("AutoParry.OnFeintSoundEnd - Caught exception: %s", Error)
 					end
 				)
 			end)

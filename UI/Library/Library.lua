@@ -434,16 +434,6 @@ do
 			Parent = ToggleLabel,
 		})
 
-		-- Transparency image taken from https://github.com/matas3535/SplixPrivateDrawingLibrary/blob/main/Library.lua cus i'm lazy
-		local CheckerFrame = Library:Create("ImageLabel", {
-			BorderSizePixel = 0,
-			Size = UDim2.new(0, 27, 0, 13),
-			ZIndex = 5,
-			Image = "http://www.roblox.com/asset/?id=12977615774",
-			Visible = not not Info.Transparency,
-			Parent = DisplayFrame,
-		})
-
 		-- 1/16/23
 		-- Rewrote this to be placed inside the Library ScreenGui
 		-- There was some issue which caused RelativeOffset to be way off
@@ -482,6 +472,14 @@ do
 			Parent = PickerFrameInner,
 		})
 
+		local SatVibMap = Library:Create("ImageLabel", {
+			BorderSizePixel = 0,
+			Size = UDim2.new(1, 0, 1, 0),
+			ZIndex = 18,
+			Image = "",
+			Parent = SatVibMapInner,
+		})
+
 		local SatVibMapOuter = Library:Create("Frame", {
 			BorderColor3 = Color3.new(0, 0, 0),
 			Position = UDim2.new(0, 4, 0, 25),
@@ -497,33 +495,6 @@ do
 			Size = UDim2.new(1, 0, 1, 0),
 			ZIndex = 18,
 			Parent = SatVibMapOuter,
-		})
-
-		local SatVibMap = Library:Create("ImageLabel", {
-			BorderSizePixel = 0,
-			Size = UDim2.new(1, 0, 1, 0),
-			ZIndex = 18,
-			Image = "rbxassetid://4155801252",
-			Parent = SatVibMapInner,
-		})
-
-		local CursorOuter = Library:Create("ImageLabel", {
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Size = UDim2.new(0, 6, 0, 6),
-			BackgroundTransparency = 1,
-			Image = "http://www.roblox.com/asset/?id=9619665977",
-			ImageColor3 = Color3.new(0, 0, 0),
-			ZIndex = 19,
-			Parent = SatVibMap,
-		})
-
-		local CursorInner = Library:Create("ImageLabel", {
-			Size = UDim2.new(0, CursorOuter.Size.X.Offset - 2, 0, CursorOuter.Size.Y.Offset - 2),
-			Position = UDim2.new(0, 1, 0, 1),
-			BackgroundTransparency = 1,
-			Image = "http://www.roblox.com/asset/?id=9619665977",
-			ZIndex = 20,
-			Parent = CursorOuter,
 		})
 
 		local HueSelectorOuter = Library:Create("Frame", {
@@ -620,14 +591,6 @@ do
 			})
 
 			Library:AddToRegistry(TransparencyBoxInner, { BorderColor3 = "OutlineColor" })
-
-			Library:Create("ImageLabel", {
-				BackgroundTransparency = 1,
-				Size = UDim2.new(1, 0, 1, 0),
-				Image = "http://www.roblox.com/asset/?id=12978095818",
-				ZIndex = 20,
-				Parent = TransparencyBoxInner,
-			})
 		end
 
 		local DisplayLabel = Library:CreateLabel({
@@ -824,8 +787,6 @@ do
 			if TransparencyBoxInner then
 				TransparencyBoxInner.BackgroundColor3 = ColorPicker.Value
 			end
-
-			CursorOuter.Position = UDim2.new(ColorPicker.Sat, 0, 1 - ColorPicker.Vib, 0)
 
 			HueBox.Text = "#" .. ColorPicker.Value:ToHex()
 			RgbBox.Text = table.concat({
@@ -2220,16 +2181,6 @@ do
 			Parent = DropdownInner,
 		})
 
-		local DropdownArrow = Library:Create("ImageLabel", {
-			AnchorPoint = Vector2.new(0, 0.5),
-			BackgroundTransparency = 1,
-			Position = UDim2.new(1, -16, 0.5, 0),
-			Size = UDim2.new(0, 12, 0, 12),
-			Image = "http://www.roblox.com/asset/?id=6282522798",
-			ZIndex = 8,
-			Parent = DropdownInner,
-		})
-
 		local ItemList = Library:CreateLabel({
 			Position = UDim2.new(0, 5, 0, 0),
 			Size = UDim2.new(1, -5, 1, 0),
@@ -2457,13 +2408,11 @@ do
 		function Dropdown:OpenDropdown()
 			ListOuter.Visible = true
 			Library.OpenedFrames[ListOuter] = true
-			DropdownArrow.Rotation = 180
 		end
 
 		function Dropdown:CloseDropdown()
 			ListOuter.Visible = false
 			Library.OpenedFrames[ListOuter] = nil
-			DropdownArrow.Rotation = 0
 		end
 
 		function Dropdown:OnChanged(Func)
@@ -2996,9 +2945,11 @@ function Library:UpdateInfoLoggerBlacklist(BlacklistList)
 		end
 
 		if
-			getgenv().Settings.AutoParryLogging.BlockLogged
-			and not getgenv().Settings.AutoParryBuilder.BuilderSettingsList[RegistryValue.AnimationId]
-			and not BlacklistList[RegistryValue.AnimationId]
+			not BlacklistList[RegistryValue.AnimationId]
+			and not (
+				getgenv().Settings.AutoParryLogging.BlockLogged
+				and getgenv().Settings.AutoParryBuilder.BuilderSettingsList[AnimationId]
+			)
 		then
 			continue
 		end
@@ -3332,7 +3283,7 @@ function Library:CreateWindow(...)
 		})
 
 		for _, Side in next, { LeftSide, RightSide } do
-			Side:WaitForChild("UIListLayout", math.huge):GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+			Side:WaitForChild("UIListLayout"):GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 				Side.CanvasSize = UDim2.fromOffset(0, Side.UIListLayout.AbsoluteContentSize.Y)
 			end)
 		end
@@ -3747,5 +3698,7 @@ end
 Players.PlayerAdded:Connect(OnPlayerChange)
 Players.PlayerRemoving:Connect(OnPlayerChange)
 
+Library.NotifyOnError = true
 getgenv().Library = Library
+
 return Library
