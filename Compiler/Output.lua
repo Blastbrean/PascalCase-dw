@@ -1122,6 +1122,9 @@ function AutoParry.ValidateState(
 
 		-- Run feint function...
 		AutoParry.RunFeintFn()
+
+		-- Reset feint flag...
+		AutoParry.CanLocalPlayerFeint = false
 	end
 
 	-- Cannot parry while we are casting a spell...
