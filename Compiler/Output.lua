@@ -6903,7 +6903,7 @@ function Library:AddAnimationDataToInfoLogger(DataName, AnimationId, AnimationNa
 
 	if
 		getgenv().Settings.AutoParryLogging.BlockLogged
-		and getgenv().Settings.AutoParryBuilder.BuilderSettingsList[RegistryValue.AnimationId]
+		and getgenv().Settings.AutoParryBuilder.BuilderSettingsList[AnimationId]
 	then
 		return
 	end
