@@ -6852,9 +6852,9 @@ function Library:UpdateInfoLoggerBlacklist(BlacklistList)
 
 		if
 			not BlacklistList[RegistryValue.AnimationId]
-			and not (
-				getgenv().Settings.AutoParryLogging.BlockLogged
-				and getgenv().Settings.AutoParryBuilder.BuilderSettingsList[AnimationId]
+			and (
+				not getgenv().Settings.AutoParryLogging.BlockLogged
+				or not getgenv().Settings.AutoParryBuilder.BuilderSettingsList[RegistryValue.AnimationId]
 			)
 		then
 			continue
