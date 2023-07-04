@@ -6901,6 +6901,13 @@ function Library:AddAnimationDataToInfoLogger(DataName, AnimationId, AnimationNa
 		return
 	end
 
+	if
+		getgenv().Settings.AutoParryLogging.BlockLogged
+		and getgenv().Settings.AutoParryBuilder.BuilderSettingsList[RegistryValue.AnimationId]
+	then
+		return
+	end
+
 	if #Library.InfoLoggerData.ContainerLabels >= 8 then
 		-- Get first element
 		local FirstElement = Library.InfoLoggerData.ContainerLabels[1]
