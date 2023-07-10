@@ -22,6 +22,7 @@ local Thread = require("Modules/Helpers/Thread")
 local Pascal = require("Modules/Helpers/Pascal")
 local Helper = require("Modules/Helpers/Helper")
 local Menu = require("UI/Menu")
+local AutoParry = require("Features/AutoParry")
 
 -- Entity folder & entity handler (special)...
 local EntityFolder = nil
@@ -47,13 +48,15 @@ local function StartDetachFn()
 			Pascal:Reset()
 
 			-- Remove events...
-			RenderEventObject:Disconnect()
-			EntityHandlerObject:Disconnect()
-			OnTeleportEventObject:Disconnect()
+			if not Pascal:DebugPreventYield() then
+				RenderEventObject:Disconnect()
+				EntityHandlerObject:Disconnect()
+				OnTeleportEventObject:Disconnect()
 
-			-- Special disconnect (see EventHandler)...
-			if EntityHandler.DisconnectAutoParry then
-				EntityHandler.DisconnectAutoParry()
+				-- Special disconnect (see EventHandler)...
+				if EntityHandler.DisconnectAutoParry then
+					EntityHandler.DisconnectAutoParry()
+				end
 			end
 
 			-- Disconnect stuff...
@@ -82,50 +85,61 @@ local function MainThreadFn()
 			-- Reset Pascal...
 			Pascal:Reset()
 
-			-- Queue our script on teleport...
-			OnTeleportEventObject:Connect(function(State, PlaceId, SpawnName)
-				if State ~= Enum.TeleportState.RequestedFromServer then
-					return
+			if not Pascal:DebugPreventYield() then
+				-- Queue our script on teleport...
+				OnTeleportEventObject:Connect(function(State, PlaceId, SpawnName)
+					if State ~= Enum.TeleportState.RequestedFromServer then
+						return
+					end
+
+					if not getgenv().PascalGhostMode then
+						-- Notify user...
+						Library:Notify("PascalCase is queuing itself on teleport...", 5.0)
+					end
+
+					-- Queue our script to run...
+					Pascal:GetMethods().QueueOnTeleport(Pascal:GetQueueScript())
+				end)
+
+				-- Stop execution if we're in the start menu...
+				if Pascal:GetPlaceId() == 4111023553 then
+					if not getgenv().PascalGhostMode then
+						-- Notify user...
+						Library:Notify("PascalCase cannot run in the start menu...", 5.0)
+					end
+
+					-- Stop script...
+					return Pascal:StopScriptWithReason(MainThread, "Stopping execution, we are in the start menu!")
 				end
 
-				-- Notify user...
-				Library:Notify("PascalCase is queuing itself on teleport...", 5.0)
+				-- Special event, aswell as the fact we have to do this after the start menu check and queue so we don't yield...
+				EntityFolder = Workspace:WaitForChild("Live", math.huge)
+				EntityHandlerObject = Event:New(EntityFolder.ChildAdded)
 
-				-- Queue our script to run...
-				Pascal:GetMethods().QueueOnTeleport(Pascal:GetQueueScript())
-			end)
+				-- Start effect replicator...
+				Pascal:GetEffectReplicator():Start()
 
-			-- Stop execution if we're in the start menu...
-			if Pascal:GetPlaceId() == 4111023553 then
-				-- Notify user...
-				Library:Notify("PascalCase cannot run in the start menu...", 5.0)
+				-- Connect all events...
+				RenderEventObject:Connect(RenderEvent.CallbackFn)
+				EntityHandlerObject:Connect(EntityHandler.CallbackFn)
 
-				-- Stop script...
-				return Pascal:StopScriptWithReason(MainThread, "Stopping execution, we are in the start menu!")
+				-- EntityHandler is a special event...
+				-- We should call the CallbackFn with our current entities...
+				Helper.LoopCurrentEntities(false, EntityFolder, function(Index, Entity)
+					EntityHandler.CallbackFn(Entity)
+				end)
+
+				-- Get auto-parry workspace sounds...
+				AutoParry.GetWorkspaceSounds()
 			end
-
-			-- Special event, aswell as the fact we have to do this after the start menu check and queue so we don't yield...
-			EntityFolder = Workspace:WaitForChild("Live", math.huge)
-			EntityHandlerObject = Event:New(EntityFolder.ChildAdded)
 
 			-- Create menu...
 			Menu:Setup()
 
-			-- Start effect replicator...
-			Pascal:GetEffectReplicator():Start()
-
-			-- Connect all events...
-			RenderEventObject:Connect(RenderEvent.CallbackFn)
-			EntityHandlerObject:Connect(EntityHandler.CallbackFn)
-
-			-- EntityHandler is a special event...
-			-- We should call the CallbackFn with our current entities...
-			Helper.LoopCurrentEntities(false, EntityFolder, function(Index, Entity)
-				EntityHandler.CallbackFn(Entity)
-			end)
-
 			-- Notify user that we successfully ran the script...
-			Library:Notify("Successfully loaded PascalCase, waiting for detach...", 5.0)
+			if not getgenv().PascalGhostMode then
+				Library:Notify("Successfully loaded PascalCase, waiting for detach...", 5.0)
+			end
 
 			-- Wait for detach
 			repeat

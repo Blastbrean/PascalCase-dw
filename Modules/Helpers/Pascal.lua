@@ -19,6 +19,7 @@ local Methods = {
 	KeyPress = keypress,
 	KeyRelease = keyrelease,
 	Random = math.random,
+	GetConnections = getconnections,
 	ToNumber = tonumber,
 	RandomSeed = math.randomseed,
 	Max = math.max,
@@ -66,7 +67,9 @@ end
 local DefaultSettings = {
 	AutoParry = {
 		Enabled = true,
+		BindEnabled = false,
 		InputMethod = "KeyPress",
+		ShowAutoParryNotifications = true,
 		AutoFeint = false,
 		IfLookingAtEnemy = false,
 		EnemyLookingAtYou = false,
@@ -84,30 +87,65 @@ local DefaultSettings = {
 		Hitchance = 100,
 	},
 	AutoParryBuilder = {
-		NickName = "",
-		AnimationId = "",
-		MinimumDistance = 5,
-		MaximumDistance = 15,
-		AttemptDelay = 150.0,
-		ShouldRoll = false,
-		ShouldBlock = false,
-		ParryRepeat = false,
-		ParryRepeatTimes = 3,
-		ParryRepeatDelay = 150.0,
-		ParryRepeatAnimationEnds = false,
-		BuilderSettingsList = {},
-		CurrentActiveSettingString = nil,
+		Animation = {
+			Type = "Animation",
+			NickName = "",
+			AnimationId = "",
+			MinimumDistance = 5,
+			MaximumDistance = 15,
+			AttemptDelay = 150.0,
+			ShouldRoll = false,
+			ShouldBlock = false,
+			ActivateOnEnd = false,
+			DelayUntilInRange = false,
+			ParryRepeat = false,
+			ParryRepeatTimes = 3,
+			ParryRepeatDelay = 150.0,
+			ParryRepeatAnimationEnds = false,
+			BuilderSettingsList = {},
+		},
+		Sound = {
+			Type = "Sound",
+			NickName = "",
+			SoundId = "",
+			MinimumDistance = 5,
+			MaximumDistance = 15,
+			AttemptDelay = 150.0,
+			ShouldRoll = false,
+			ParryRepeat = false,
+			ParryRepeatTimes = 3,
+			ParryRepeatDelay = 150.0,
+			BuilderSettingsList = {},
+		},
+		Part = {
+			Type = "Part",
+			NickName = "",
+			PartName = "",
+			MinimumDistance = 5,
+			MaximumDistance = 15,
+			AttemptDelay = 150.0,
+			ShouldRoll = false,
+			ShouldBlock = false,
+			ParryRepeat = false,
+			ParryRepeatTimes = 3,
+			ParryRepeatDelay = 150.0,
+			BuilderSettingsList = {},
+		},
+		ActiveConfigurationString = "",
+		ActiveConfigurationNameString = "",
+		BuilderSettingType = "Animation",
 	},
 	AutoParryLogging = {
 		Enabled = false,
-		Type = "Animations",
-		CurrentAnimationIdBlacklist = "",
-		BlacklistedAnimationIds = {},
+		Type = "Animation",
+		CurrentIdentifierBlacklist = "",
+		BlacklistedIdentifiers = {},
 		MinimumDistance = 5.0,
 		MaximumDistance = 15.0,
+		MaximumSize = 8,
 		LogYourself = false,
 		BlockLogged = false,
-		ActiveConfigurationString = {},
+		CurrentActiveIdentifiersSetting = {},
 	},
 }
 
@@ -128,17 +166,24 @@ function Pascal:GetQueueScript()
 	return "loadstring(game:HttpGet('https://raw.githubusercontent.com/Blastbrean/PascalCase/main/Main.lua'))()"
 end
 
-function Pascal:GetBuilderSettingFromIdentifier(Identifier)
-	return Helper.LoopLuaTable(Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList, function(Index, BuilderSetting)
-		if BuilderSetting.Identifier ~= Identifier then
-			return false
-		end
+function Pascal:DebugPreventYield()
+	return false
+end
 
-		return {
-			ReturningData = true,
-			Data = BuilderSetting,
-		}
-	end)
+function Pascal:GetBuilderSettingFromIdentifier(Type, Identifier)
+	return Helper.LoopLuaTable(
+		Pascal:GetConfig().AutoParryBuilder[Type].BuilderSettingsList,
+		function(Index, BuilderSetting)
+			if BuilderSetting.Identifier ~= Identifier then
+				return false
+			end
+
+			return {
+				ReturningData = true,
+				Data = BuilderSetting,
+			}
+		end
+	)
 end
 
 function Pascal:GetLogger()

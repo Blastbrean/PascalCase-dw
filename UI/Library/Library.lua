@@ -109,13 +109,7 @@ function Library:SafeCallback(f, ...)
 	local success, event = pcall(f, ...)
 
 	if not success then
-		local _, i = event:find(":%d+: ")
-
-		if not i then
-			return Library:Notify(event)
-		end
-
-		return Library:Notify(event:sub(i + 1), 3)
+		return Library:Notify(event)
 	end
 end
 
@@ -952,6 +946,7 @@ do
 
 		local KeyPicker = {
 			Value = Info.Default,
+			NoUI = Info.NoUI or false,
 			Toggled = false,
 			Mode = Info.Mode or "Toggle", -- Always, Toggle, Hold
 			Type = "KeyPicker",
@@ -1094,16 +1089,14 @@ do
 		end
 
 		function KeyPicker:Update()
-			if Info.NoUI then
-				return
-			end
-
 			local State = KeyPicker:GetState()
-
 			ContainerLabel.Text = string.format("[%s] %s (%s)", KeyPicker.Value, Info.Text, KeyPicker.Mode)
-
 			ContainerLabel.Visible = true
 			ContainerLabel.TextColor3 = State and Library.AccentColor or Library.FontColor
+
+			if KeyPicker.NoUI then
+				ContainerLabel.Visible = false
+			end
 
 			Library.RegistryMap[ContainerLabel].Properties.TextColor3 = State and "AccentColor" or "FontColor"
 
@@ -1230,7 +1223,7 @@ do
 		end)
 
 		Library:GiveSignal(InputService.InputBegan:Connect(function(Input, ProcessedByGame)
-			if not Picking and not Library.Toggle then
+			if not Picking then
 				if KeyPicker.Mode == "Toggle" then
 					local Key = KeyPicker.Value
 
@@ -2757,7 +2750,7 @@ do
 		AnchorPoint = Vector2.new(0, 0.5),
 		BorderColor3 = Color3.new(0, 0, 0),
 		Position = UDim2.new(0, 10, 0.5, 0),
-		Size = UDim2.new(0, 210, 0, 20),
+		Size = UDim2.new(0, 210, 0, 24),
 		Visible = false,
 		ZIndex = 100,
 		Parent = ScreenGui,
@@ -2834,8 +2827,6 @@ end
 function Library:SetWatermark(Text)
 	local X, Y = Library:GetTextBounds(Text, Library.Font, 14)
 	Library.Watermark.Size = UDim2.new(0, X + 15, 0, (Y * 1.5) + 3)
-	Library:SetWatermarkVisibility(true)
-
 	Library.WatermarkText.Text = Text
 end
 
@@ -2944,12 +2935,13 @@ function Library:UpdateInfoLoggerBlacklist(BlacklistList)
 			continue
 		end
 
+		local IsInBlacklist = RegistryValue.SoundId and BlacklistList[RegistryValue.SoundId]
+			or BlacklistList[RegistryValue.AnimationId]
+
 		if
-			not BlacklistList[RegistryValue.AnimationId]
-			and (
-				not getgenv().Settings.AutoParryLogging.BlockLogged
-				or not getgenv().Settings.AutoParryBuilder.BuilderSettingsList[RegistryValue.AnimationId]
-			)
+			not IsInBlacklist
+			and (not getgenv().Settings.AutoParryLogging.BlockLogged or not getgenv().Settings.AutoParryBuilder.Animation.BuilderSettingsList[RegistryValue.AnimationId])
+			and Index <= getgenv().Settings.AutoParryLogging.MaximumSize
 		then
 			continue
 		end
@@ -2982,6 +2974,68 @@ function Library:UpdateInfoLoggerSize()
 	Library.InfoLoggerFrame.Size = UDim2.new(0, math.max(XSize + 10, 210), 0, YSize + 23)
 end
 
+function Library:AddSoundDataToInfoLogger(DataName, SoundId, SoundName, Sound, Distance)
+	if Library.InfoLoggerData.BlacklistList[SoundId] then
+		return
+	end
+
+	if
+		getgenv().Settings.AutoParryLogging.BlockLogged
+		and getgenv().Settings.AutoParryBuilder.Sound.BuilderSettingsList[SoundId]
+	then
+		return
+	end
+
+	if (#Library.InfoLoggerData.ContainerLabels + 1) > getgenv().Settings.AutoParryLogging.MaximumSize then
+		-- Get first element
+		local FirstElement = Library.InfoLoggerData.ContainerLabels[1]
+		if FirstElement then
+			-- Destroy the last element
+			FirstElement:Destroy()
+
+			-- Remove element from table
+			table.remove(Library.InfoLoggerData.ContainerLabels, 1)
+		end
+	end
+
+	local InfoContainerLabel = Library:CreateLabel({
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Size = UDim2.new(1, 0, 0, 18),
+		TextSize = 13,
+		Visible = false,
+		ZIndex = 110,
+		Parent = Library.InfoLoggerContainer,
+	}, true)
+
+	InfoContainerLabel.Text = string.format(
+		"[%s] is playing (%s) with Sound ID of %s (%.2fm away) (%s)",
+		DataName,
+		SoundName,
+		SoundId,
+		Distance,
+		getgenv().Settings.AutoParryBuilder.Sound.BuilderSettingsList[SoundId] and "AP" or "X"
+	)
+
+	InfoContainerLabel.Visible = true
+	InfoContainerLabel.TextColor3 = Library.FontColor
+
+	Library.InfoLoggerData.ContainerLabels[#Library.InfoLoggerData.ContainerLabels + 1] = InfoContainerLabel
+	Library.RegistryMap[InfoContainerLabel].Properties.TextColor3 = "FontColor"
+	Library.RegistryMap[InfoContainerLabel].SoundId = SoundId
+
+	InfoContainerLabel.InputBegan:Connect(function(Input)
+		if Input.UserInputType == Enum.UserInputType.MouseButton2 and not Library:MouseIsOverOpenedFrame() then
+			setclipboard(Library.RegistryMap[InfoContainerLabel].SoundId)
+			Library:Notify(
+				string.format("Copied %s to clipboard!", Library.RegistryMap[InfoContainerLabel].SoundId),
+				2.5
+			)
+		end
+	end)
+
+	Library:UpdateInfoLoggerSize()
+end
+
 function Library:AddAnimationDataToInfoLogger(DataName, AnimationId, AnimationName, AnimationTrack, Animation, Distance)
 	if Library.InfoLoggerData.BlacklistList[AnimationId] then
 		return
@@ -2989,20 +3043,21 @@ function Library:AddAnimationDataToInfoLogger(DataName, AnimationId, AnimationNa
 
 	if
 		getgenv().Settings.AutoParryLogging.BlockLogged
-		and getgenv().Settings.AutoParryBuilder.BuilderSettingsList[AnimationId]
+		and getgenv().Settings.AutoParryBuilder.Animation.BuilderSettingsList[AnimationId]
 	then
 		return
 	end
 
-	if #Library.InfoLoggerData.ContainerLabels >= 8 then
+	if (#Library.InfoLoggerData.ContainerLabels + 1) > getgenv().Settings.AutoParryLogging.MaximumSize then
 		-- Get first element
 		local FirstElement = Library.InfoLoggerData.ContainerLabels[1]
+		if FirstElement then
+			-- Destroy the last element
+			FirstElement:Destroy()
 
-		-- Destroy the last element
-		FirstElement:Destroy()
-
-		-- Remove element from table
-		table.remove(Library.InfoLoggerData.ContainerLabels, 1)
+			-- Remove element from table
+			table.remove(Library.InfoLoggerData.ContainerLabels, 1)
+		end
 	end
 
 	local InfoContainerLabel = Library:CreateLabel({
@@ -3032,14 +3087,14 @@ function Library:AddAnimationDataToInfoLogger(DataName, AnimationId, AnimationNa
 	end
 
 	InfoContainerLabel.Text = string.format(
-		"[%s] is playing (%s) with ID of %s (%.2fm away) (%s) (%s) (%s)",
+		"[%s] is playing (%s) with Animation ID of %s (%.2fm away) (%s) (%s) (%s)",
 		DataName,
 		AnimationName,
 		AnimationId,
 		Distance,
 		TypeString,
 		TwoHandedString,
-		getgenv().Settings.AutoParryBuilder.BuilderSettingsList[AnimationId] and "AP" or "X"
+		getgenv().Settings.AutoParryBuilder.Animation.BuilderSettingsList[AnimationId] and "AP" or "X"
 	)
 
 	InfoContainerLabel.Visible = true

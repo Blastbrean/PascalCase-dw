@@ -7,6 +7,7 @@ local SaveManager = require("UI/Library/SaveManager")
 
 function SettingsTab:SetupSaveManager(Library)
 	SaveManager:SetLibrary(Library)
+	SaveManager:SetWindow(self.Window)
 	SaveManager:IgnoreThemeSettings()
 	SaveManager:SetFolder(Pascal:GetConfigurationPath())
 	SaveManager:BuildConfigSection(self.Tab)
@@ -27,6 +28,14 @@ function SettingsTab:CreateElements(Library)
 		Default = false,
 		Callback = function(Value)
 			Library:SetKeybindVisibility(Value)
+		end,
+	})
+
+	MenuGroup:AddToggle("ShowWaterMarkToggle", {
+		Text = "Show watermark",
+		Default = false,
+		Callback = function(Value)
+			Library:SetWatermarkVisibility(Value)
 		end,
 	})
 

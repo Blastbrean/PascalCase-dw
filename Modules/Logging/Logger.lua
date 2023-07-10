@@ -5,10 +5,12 @@ function Logger:Print(String, ...)
 	-- Format string
 	local FormatString = string.format(String, ...)
 
-	-- Print using rconsoleprint
-	rconsoleprint(FormatString .. "\n")
+	if not getgenv().PascalGhostMode then
+		-- Print using rconsoleprint
+		rconsoleprint(FormatString .. "\n")
+	end
 
-	-- Add to current log our current string
+	-- Add to current log, our current string...
 	table.insert(self.CurrentLog, FormatString)
 end
 

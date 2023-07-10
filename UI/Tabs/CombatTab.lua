@@ -9,7 +9,7 @@ local HttpService = GetService("HttpService")
 -- Configuration system for combat (this code is horrible, but i don't care enough right now. it works then it works.)
 function CombatTab:LoadLinoriaConfigFromName(Name)
 	if not isfile(Pascal:GetConfigurationPath() .. "/CombatConfigurations/" .. Name .. ".export") then
-		Library:Notify(string.format("Unable to load linoria-config %s, file does not exist!", Name), 2.0)
+		Library:Notify(string.format("Unable to load linoria-config %s, file does not exist! (make sure it is .export)", Name), 2.0)
 		return
 	end
 
@@ -26,8 +26,9 @@ function CombatTab:LoadLinoriaConfigFromName(Name)
 	end
 
 	for AnimationId, AnimationData in next, ConfigData do
-		Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList[AnimationId] = {
+		Pascal:GetConfig().AutoParryBuilder["Animation"].BuilderSettingsList[AnimationId] = {
 			Identifier = string.format("%s | %s", AnimationData.Name, AnimationId),
+			Type = "Animation",
 			NickName = AnimationData.Name,
 			AnimationId = AnimationId,
 			MinimumDistance = 0.0,
@@ -44,6 +45,8 @@ function CombatTab:LoadLinoriaConfigFromName(Name)
 		}
 	end
 
+	Pascal:GetConfig().AutoParryBuilder["Sound"].BuilderSettingsList = {}
+	Pascal:GetConfig().AutoParryBuilder["Part"].BuilderSettingsList = {}
 	Library:Notify(string.format("Successfully linoria-config config %s", Name), 2.0)
 end
 
@@ -60,13 +63,20 @@ function CombatTab:LoadConfigurationFromName(Name)
 	end
 
 	local ConfigData = HttpService:JSONDecode(JSONData)
-	if not ConfigData or not ConfigData.BuilderSettingsList or not ConfigData.BlacklistedIdList then
+	if
+		not ConfigData
+		or (not ConfigData.BuilderSettingsListAnimation and not ConfigData.BuilderSettingsListSound and not ConfigData.BuilderSettingsListPart)
+		or not ConfigData.BlacklistedIdList
+	then
 		Library:Notify(string.format("Unable to load config %s, data may be corrupted!", Name), 2.0)
 		return
 	end
 
-	Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList = ConfigData.BuilderSettingsList
-	Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds = ConfigData.BlacklistedIdList
+	Pascal:GetConfig().AutoParryBuilder["Animation"].BuilderSettingsList = ConfigData.BuilderSettingsListAnimation or {}
+	Pascal:GetConfig().AutoParryBuilder["Sound"].BuilderSettingsList = ConfigData.BuilderSettingsListSound or {}
+	Pascal:GetConfig().AutoParryBuilder["Part"].BuilderSettingsList = ConfigData.BuilderSettingsListPart or {}
+	Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers = ConfigData.BlacklistedIdList
+
 	Library:Notify(string.format("Successfully loaded config %s", Name), 2.0)
 end
 
@@ -83,7 +93,7 @@ function CombatTab:CreateConfigurationWithName(Name)
 
 	local ConfigData = {
 		BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList,
-		BlacklistedIdList = Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds,
+		BlacklistedIdList = Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers,
 	}
 
 	local JSONData = HttpService:JSONEncode(ConfigData)
@@ -98,8 +108,10 @@ function CombatTab:SaveConfigurationWithName(Name)
 	end
 
 	local ConfigData = {
-		BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList,
-		BlacklistedIdList = Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds,
+		BuilderSettingsListAnimation = Pascal:GetConfig().AutoParryBuilder["Animation"].BuilderSettingsList,
+		BuilderSettingsListSound = Pascal:GetConfig().AutoParryBuilder["Sound"].BuilderSettingsList,
+		BuilderSettingsListPart = Pascal:GetConfig().AutoParryBuilder["Part"].BuilderSettingsList,
+		BlacklistedIdList = Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers,
 	}
 
 	local JSONData = HttpService:JSONEncode(ConfigData)
@@ -137,14 +149,23 @@ function CombatTab:LoadDefaultConfig()
 	end
 
 	local ConfigData = HttpService:JSONDecode(JSONData)
-	if not ConfigData or not ConfigData.BuilderSettingsList or not ConfigData.BlacklistedIdList then
+	if
+		not ConfigData
+		or (not ConfigData.BuilderSettingsListAnimation and not ConfigData.BuilderSettingsListSound and not ConfigData.BuilderSettingsListPart)
+		or not ConfigData.BlacklistedIdList
+	then
 		Library:Notify(string.format("Unable to auto-load config, data may be corrupted!"), 2.0)
 		return
 	end
 
-	Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList = ConfigData.BuilderSettingsList
-	Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds = ConfigData.BlacklistedIdList
-	Library:Notify(string.format('Auto loaded combat config "%s"', ConfigToAutoload), 2.0)
+	Pascal:GetConfig().AutoParryBuilder["Animation"].BuilderSettingsList = ConfigData.BuilderSettingsListAnimation or {}
+	Pascal:GetConfig().AutoParryBuilder["Sound"].BuilderSettingsList = ConfigData.BuilderSettingsListSound or {}
+	Pascal:GetConfig().AutoParryBuilder["Part"].BuilderSettingsList = ConfigData.BuilderSettingsListPart or {}
+	Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers = ConfigData.BlacklistedIdList
+
+	if not getgenv().PascalGhostMode then
+		Library:Notify(string.format('Auto loaded combat config "%s"', ConfigToAutoload), 2.0)
+	end
 end
 
 function CombatTab:GetConfigurationList()
@@ -198,9 +219,9 @@ function CombatTab:GetConfigurationList()
 	return out
 end
 
-function CombatTab:AutoParryGroup()
-	local TabBox = self.Tab:AddLeftTabbox("AutoParry")
-	local SubTab1 = TabBox:AddTab("Builder")
+function CombatTab:AutoParryBuilderGroup()
+	local TabBox = self.Tab:AddLeftTabbox("AutoParryBuilder")
+	local SubTab1 = TabBox:AddTab("Animation")
 
 	SubTab1:AddInput("AnimationNickNameInput", {
 		Numeric = false,
@@ -208,7 +229,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Animation Nickname",
 
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.NickName = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.NickName = Value
 		end,
 	})
 
@@ -218,7 +239,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Animation ID",
 
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.AnimationId = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.AnimationId = Value
 		end,
 	})
 
@@ -232,7 +253,7 @@ function CombatTab:AutoParryGroup()
 		Suffix = "m",
 
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.MinimumDistance = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.MinimumDistance = Value
 		end,
 	})
 
@@ -246,7 +267,7 @@ function CombatTab:AutoParryGroup()
 		Suffix = "m",
 
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.MaximumDistance = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.MaximumDistance = Value
 		end,
 	})
 
@@ -256,7 +277,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Delay until attempt (ms)",
 
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.AttemptDelay = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.AttemptDelay = Value
 		end,
 	})
 
@@ -264,7 +285,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Roll instead of parry",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.ShouldRoll = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.ShouldRoll = Value
 		end,
 	})
 
@@ -272,7 +293,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Block until ending",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.ShouldBlock = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.ShouldBlock = Value
 		end,
 	})
 
@@ -281,7 +302,7 @@ function CombatTab:AutoParryGroup()
 		Tooltip = "Misleading, as this will simply run auto-parry at the end of an animation (including delay), if you want to only activate on end, run with no delay.",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.ActivateOnEnd = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.ActivateOnEnd = Value
 		end,
 	})
 
@@ -289,7 +310,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Delay until in range",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.DelayUntilInRange = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.DelayUntilInRange = Value
 		end,
 	})
 
@@ -297,7 +318,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Enable parry repeating",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.ParryRepeat = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.ParryRepeat = Value
 		end,
 	})
 
@@ -306,7 +327,7 @@ function CombatTab:AutoParryGroup()
 		Default = false, -- Default value (true / false)
 		Tooltip = "This will repeat the parry until the animation ends with the specified delay, and ignores the parry-repeat slider.",
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.ParryRepeatAnimationEnds = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.ParryRepeatAnimationEnds = Value
 		end,
 	})
 
@@ -321,7 +342,7 @@ function CombatTab:AutoParryGroup()
 		Suffix = "x",
 
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.ParryRepeatTimes = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.ParryRepeatTimes = Value
 		end,
 	})
 
@@ -331,7 +352,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Delay between repeat parries (ms)",
 
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.ParryRepeatDelay = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.ParryRepeatDelay = Value
 		end,
 	})
 
@@ -339,6 +360,538 @@ function CombatTab:AutoParryGroup()
 		{ Toggles.EnableParryRepeat, true }, -- We can also pass `false` if we only want our features to show when the toggle is off!
 	})
 
+	local SubTab2 = TabBox:AddTab("Sound")
+
+	SubTab2:AddInput("SoundNickNameInput", {
+		Numeric = false,
+		Finished = false,
+		Text = "Sound Nickname",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.NickName = Value
+		end,
+	})
+
+	SubTab2:AddInput("SoundIdInput", {
+		Numeric = false,
+		Finished = false,
+		Text = "Sound ID",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.SoundId = Value
+		end,
+	})
+
+	SubTab2:AddSlider("SoundMinimumDistanceSlider", {
+		Text = "Minimum distance to activate",
+		Default = 5,
+		Min = 0,
+		Max = 100,
+		Rounding = 0,
+		Compact = false,
+		Suffix = "m",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.MinimumDistance = Value
+		end,
+	})
+
+	SubTab2:AddSlider("SoundMaximumDistanceSlider", {
+		Text = "Maximum distance to activate",
+		Default = 15,
+		Min = 0,
+		Max = 100,
+		Rounding = 0,
+		Compact = false,
+		Suffix = "m",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.MaximumDistance = Value
+		end,
+	})
+
+	SubTab2:AddInput("SoundAttemptDelayInput", {
+		Numeric = true,
+		Finished = false,
+		Text = "Delay until attempt (ms)",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.AttemptDelay = Value
+		end,
+	})
+
+	SubTab2:AddToggle("SoundRollInsteadOfParryToggle", {
+		Text = "Roll instead of parry",
+		Default = false, -- Default value (true / false)
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.ShouldRoll = Value
+		end,
+	})
+
+	SubTab2:AddToggle("SoundEnableParryRepeat", {
+		Text = "Enable parry repeating",
+		Default = false, -- Default value (true / false)
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.ParryRepeat = Value
+		end,
+	})
+
+	local Depbox2 = SubTab2:AddDependencyBox()
+	Depbox2:AddSlider("SoundParryRepeatSlider", {
+		Text = "Parry repeat times",
+		Default = 3,
+		Min = 1,
+		Max = 100,
+		Rounding = 0,
+		Compact = false,
+		Suffix = "x",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.ParryRepeatTimes = Value
+		end,
+	})
+
+	Depbox2:AddInput("SoundParryRepeatDelayInput", {
+		Numeric = true,
+		Finished = false,
+		Text = "Delay between repeat parries (ms)",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.ParryRepeatDelay = Value
+		end,
+	})
+
+	Depbox2:SetupDependencies({
+		{ Toggles.SoundEnableParryRepeat, true }, -- We can also pass `false` if we only want our features to show when the toggle is off!
+	})
+
+	local SubTab3 = TabBox:AddTab("Part")
+	SubTab3:AddLabel(
+		"This auto-parry option is a work in progress, come back later to see if it's done...",
+		{ Wrap = true }
+	)
+end
+
+function CombatTab:BuilderSettingsGroup()
+	local TabBox = self.Tab:AddRightTabbox("BuilderSettings")
+
+	local SubTab1 = TabBox:AddTab("Settings")
+	SubTab1:AddDropdown("BuilderSettingsList", {
+		Values = CombatTab:UpdateBuilderSettingsList(),
+
+		Default = 1, -- number index of the value / string
+		Multi = false, -- true / false, allows multiple choices to be selected
+		AllowNull = true,
+
+		Text = "Builder Settings List",
+
+		Callback = function(Value)
+			local Type = Pascal:GetConfig().AutoParryBuilder.BuilderSettingType
+			Pascal:GetConfig().AutoParryBuilder[Type].CurrentActiveSettingString = Value
+
+			local BuilderSetting = Pascal:GetBuilderSettingFromIdentifier(Type, Value)
+			if not BuilderSetting then
+				return
+			end
+
+			if Type == "Animation" then
+				Options.AnimationNickNameInput:SetValue(BuilderSetting.NickName)
+				Options.AnimationIdInput:SetValue(BuilderSetting.AnimationId)
+				Options.MinimumDistanceSlider:SetValue(BuilderSetting.MinimumDistance)
+				Options.MaximumDistanceSlider:SetValue(BuilderSetting.MaximumDistance)
+				Options.AttemptDelayInput:SetValue(BuilderSetting.AttemptDelay)
+				Options.ParryRepeatSlider:SetValue(BuilderSetting.ParryRepeatTimes)
+				Options.ParryRepeatDelayInput:SetValue(BuilderSetting.ParryRepeatDelay)
+				Toggles.EnableParryRepeat:SetValue(BuilderSetting.ParryRepeat)
+				Toggles.RollInsteadOfParryToggle:SetValue(BuilderSetting.ShouldRoll)
+				Toggles.BlockInsteadOfParryToggle:SetValue(BuilderSetting.ShouldBlock)
+				Toggles.EnableParryRepeatAnimationEnds:SetValue(BuilderSetting.ParryRepeatAnimationEnds)
+				Toggles.DelayUntilInRange:SetValue(BuilderSetting.DelayUntilInRange)
+				Toggles.ActivateOnEnd:SetValue(BuilderSetting.ActivateOnEnd)
+			end
+
+			if Type == "Sound" then
+				Options.SoundNickNameInput:SetValue(BuilderSetting.NickName)
+				Options.SoundIdInput:SetValue(BuilderSetting.SoundId)
+				Options.SoundMinimumDistanceSlider:SetValue(BuilderSetting.MinimumDistance)
+				Options.SoundMaximumDistanceSlider:SetValue(BuilderSetting.MaximumDistance)
+				Options.SoundAttemptDelayInput:SetValue(BuilderSetting.AttemptDelay)
+				Options.SoundParryRepeatSlider:SetValue(BuilderSetting.ParryRepeatTimes)
+				Options.SoundParryRepeatDelayInput:SetValue(BuilderSetting.ParryRepeatDelay)
+				Toggles.SoundEnableParryRepeat:SetValue(BuilderSetting.ParryRepeat)
+				Toggles.SoundRollInsteadOfParryToggle:SetValue(BuilderSetting.ShouldRoll)
+			end
+		end,
+	})
+
+	SubTab1:AddDropdown("BuilderSettingsType", {
+		Values = { "Animation", "Sound" },
+
+		Default = 1, -- number index of the value / string
+		Multi = false, -- true / false, allows multiple choices to be selected
+		AllowNull = false,
+		Default = "Animation",
+		Text = "Builder Setting Type",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.BuilderSettingType = Value
+			CombatTab:UpdateBuilderSettingsList()
+			Options.BuilderSettingsList:SetValue(nil)
+		end,
+	})
+
+	SubTab1:AddButton("Register setting into list", function()
+		local Type = Pascal:GetConfig().AutoParryBuilder.BuilderSettingType
+		local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder[Type].BuilderSettingsList
+
+		-- Handle the builder settings list
+		if Type == "Animation" then
+			if BuilderSettingsList[Pascal:GetConfig().AutoParryBuilder[Type].AnimationId] then
+				Library:Notify(
+					string.format(
+						"%s(%s) is already in animation-list, cannot re-register it",
+						Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+						Pascal:GetConfig().AutoParryBuilder[Type].AnimationId
+					),
+					2.5
+				)
+
+				return
+			end
+
+			BuilderSettingsList[Pascal:GetConfig().AutoParryBuilder[Type].AnimationId] = {
+				Identifier = string.format(
+					"%s | %s",
+					Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+					Pascal:GetConfig().AutoParryBuilder[Type].AnimationId
+				),
+				Type = Pascal:GetConfig().AutoParryBuilder[Type].Type,
+				NickName = Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+				AnimationId = Pascal:GetConfig().AutoParryBuilder[Type].AnimationId,
+				MinimumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MinimumDistance,
+				MaximumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MaximumDistance,
+				AttemptDelay = Pascal:GetConfig().AutoParryBuilder[Type].AttemptDelay,
+				ShouldRoll = Pascal:GetConfig().AutoParryBuilder[Type].ShouldRoll,
+				ShouldBlock = Pascal:GetConfig().AutoParryBuilder[Type].ShouldBlock,
+				ParryRepeat = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeat,
+				ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatTimes,
+				ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatDelay,
+				ParryRepeatAnimationEnds = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatAnimationEnds,
+				DelayUntilInRange = Pascal:GetConfig().AutoParryBuilder[Type].DelayUntilInRange,
+				ActivateOnEnd = Pascal:GetConfig().AutoParryBuilder[Type].ActivateOnEnd,
+			}
+
+			Library:Notify(
+				string.format(
+					"Registered %s(%s) into list",
+					Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+					Pascal:GetConfig().AutoParryBuilder[Type].AnimationId
+				),
+				2.5
+			)
+		end
+
+		if Type == "Sound" then
+			if BuilderSettingsList[Pascal:GetConfig().AutoParryBuilder[Type].SoundId] then
+				Library:Notify(
+					string.format(
+						"%s(%s) is already in sound-list, cannot re-register it",
+						Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+						Pascal:GetConfig().AutoParryBuilder[Type].SoundId
+					),
+					2.5
+				)
+
+				return
+			end
+
+			BuilderSettingsList[Pascal:GetConfig().AutoParryBuilder[Type].SoundId] = {
+				Identifier = string.format(
+					"%s | %s",
+					Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+					Pascal:GetConfig().AutoParryBuilder[Type].SoundId
+				),
+				Type = Pascal:GetConfig().AutoParryBuilder[Type].Type,
+				NickName = Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+				SoundId = Pascal:GetConfig().AutoParryBuilder[Type].SoundId,
+				MinimumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MinimumDistance,
+				MaximumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MaximumDistance,
+				AttemptDelay = Pascal:GetConfig().AutoParryBuilder[Type].AttemptDelay,
+				ShouldRoll = Pascal:GetConfig().AutoParryBuilder[Type].ShouldRoll,
+				ParryRepeat = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeat,
+				ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatTimes,
+				ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatDelay,
+			}
+
+			Library:Notify(
+				string.format(
+					"Registered %s(%s) into list",
+					Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+					Pascal:GetConfig().AutoParryBuilder[Type].SoundId
+				),
+				2.5
+			)
+		end
+
+		CombatTab:UpdateBuilderSettingsList()
+		Options.BuilderSettingsList:SetValue(nil)
+	end)
+
+	SubTab1:AddButton("Update setting from list", function()
+		local Type = Pascal:GetConfig().AutoParryBuilder.BuilderSettingType
+		local BuilderSetting = Pascal:GetBuilderSettingFromIdentifier(
+			Type,
+			Pascal:GetConfig().AutoParryBuilder[Type].CurrentActiveSettingString
+		)
+
+		if not BuilderSetting then
+			return
+		end
+
+		if Type == "Animation" then
+			Library:Notify(
+				string.format("Updated %s(%s) from animation-list", BuilderSetting.NickName, BuilderSetting.AnimationId),
+				2.5
+			)
+
+			-- Handle the builder settings list
+			BuilderSetting.Identifier = string.format(
+				"%s | %s",
+				Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+				Pascal:GetConfig().AutoParryBuilder[Type].AnimationId
+			)
+
+			BuilderSetting.NickName = Pascal:GetConfig().AutoParryBuilder[Type].NickName
+			BuilderSetting.MinimumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MinimumDistance
+			BuilderSetting.MaximumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MaximumDistance
+			BuilderSetting.AttemptDelay = Pascal:GetConfig().AutoParryBuilder[Type].AttemptDelay
+			BuilderSetting.ShouldRoll = Pascal:GetConfig().AutoParryBuilder[Type].ShouldRoll
+			BuilderSetting.ShouldBlock = Pascal:GetConfig().AutoParryBuilder[Type].ShouldBlock
+			BuilderSetting.ParryRepeat = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeat
+			BuilderSetting.ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatTimes
+			BuilderSetting.ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatDelay
+			BuilderSetting.ParryRepeatAnimationEnds = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatAnimationEnds
+			BuilderSetting.DelayUntilInRange = Pascal:GetConfig().AutoParryBuilder[Type].DelayUntilInRange
+			BuilderSetting.ActivateOnEnd = Pascal:GetConfig().AutoParryBuilder[Type].ActivateOnEnd
+		end
+
+		if Type == "Sound" then
+			Library:Notify(
+				string.format("Updated %s(%s) from sound-list", BuilderSetting.NickName, BuilderSetting.SoundId),
+				2.5
+			)
+
+			-- Handle the builder settings list
+			BuilderSetting.Identifier = string.format(
+				"%s | %s",
+				Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+				Pascal:GetConfig().AutoParryBuilder[Type].SoundId
+			)
+
+			BuilderSetting.NickName = Pascal:GetConfig().AutoParryBuilder[Type].SoundId
+			BuilderSetting.MinimumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MinimumDistance
+			BuilderSetting.MaximumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MaximumDistance
+			BuilderSetting.AttemptDelay = Pascal:GetConfig().AutoParryBuilder[Type].AttemptDelay
+			BuilderSetting.ShouldRoll = Pascal:GetConfig().AutoParryBuilder[Type].ShouldRoll
+			BuilderSetting.ParryRepeat = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeat
+			BuilderSetting.ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatTimes
+			BuilderSetting.ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatDelay
+		end
+
+		CombatTab:UpdateBuilderSettingsList()
+		Options.BuilderSettingsList:SetValue(nil)
+	end)
+
+	SubTab1:AddButton("Delete setting from list", function()
+		local Type = Pascal:GetConfig().AutoParryBuilder.BuilderSettingType
+		local BuilderSetting = Pascal:GetBuilderSettingFromIdentifier(
+			Type,
+			Pascal:GetConfig().AutoParryBuilder[Type].CurrentActiveSettingString
+		)
+
+		if not BuilderSetting then
+			return
+		end
+
+		if Type == "Animation" then
+			Library:Notify(
+				string.format("Deleted %s(%s) from list", BuilderSetting.NickName, BuilderSetting.AnimationId),
+				2.5
+			)
+
+			local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder[Type].BuilderSettingsList
+			BuilderSettingsList[BuilderSetting.AnimationId] = nil
+		end
+
+		if Type == "Sound" then
+			Library:Notify(
+				string.format("Deleted %s(%s) from list", BuilderSetting.NickName, BuilderSetting.SoundId),
+				2.5
+			)
+
+			local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder[Type].BuilderSettingsList
+			BuilderSettingsList[BuilderSetting.SoundId] = nil
+		end
+
+		CombatTab:UpdateBuilderSettingsList()
+		Options.BuilderSettingsList:SetValue(nil)
+	end)
+
+	SubTab1:AddDropdown("BlacklistedIdentifiersList", {
+		Values = CombatTab:UpdateBlacklistedIdentifiersList(),
+
+		Default = 1, -- number index of the value / string
+		Multi = false, -- true / false, allows multiple choices to be selected
+		AllowNull = true,
+
+		Text = "Blacklisted Identifiers",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryLogging.CurrentActiveIdentifiersSetting = Value
+		end,
+	})
+
+	SubTab1:AddInput("IdentifiersInputBlacklist", {
+		Numeric = false,
+		Finished = false,
+		Text = "Hide ID",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryLogging.CurrentIdentifierBlacklist = Value
+		end,
+	})
+
+	SubTab1:AddButton("Blacklist ID from logger", function()
+		local ActiveAnimationIdValue =
+			Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers[Pascal:GetConfig().AutoParryLogging.CurrentIdentifierBlacklist]
+
+		if ActiveAnimationIdValue == true then
+			Library:Notify(
+				string.format(
+					"%s is already blacklisted from logging",
+					Pascal:GetConfig().AutoParryLogging.CurrentIdentifierBlacklist
+				),
+				2.5
+			)
+
+			return
+		end
+
+		Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers[Pascal:GetConfig().AutoParryLogging.CurrentIdentifierBlacklist] =
+			true
+
+		Library:Notify(
+			string.format("Blacklisted %s from logging", Pascal:GetConfig().AutoParryLogging.CurrentIdentifierBlacklist),
+			2.5
+		)
+
+		CombatTab:UpdateBlacklistedIdentifiersList()
+	end)
+
+	SubTab1:AddButton("Re-whitelist selected ID", function()
+		local ActiveAnimationIdValue =
+			Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers[Pascal:GetConfig().AutoParryLogging.CurrentActiveIdentifiersSetting]
+
+		if ActiveAnimationIdValue == nil then
+			Library:Notify(string.format("Active ID does not exist in the list (error)"), 2.5)
+			return
+		end
+
+		if ActiveAnimationIdValue == false then
+			Library:Notify(
+				string.format(
+					"%s is already whitelisted from logging",
+					Pascal:GetConfig().AutoParryLogging.CurrentActiveIdentifiersSetting
+				),
+				2.5
+			)
+
+			return
+		end
+
+		Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers[Pascal:GetConfig().AutoParryLogging.CurrentActiveIdentifiersSetting] =
+			false
+
+		Library:Notify(
+			string.format(
+				"Re-whitelisted %s from logging",
+				Pascal:GetConfig().AutoParryLogging.CurrentActiveIdentifiersSetting
+			),
+			2.5
+		)
+
+		CombatTab:UpdateBlacklistedIdentifiersList()
+		Options.BlacklistedIdentifiersList:SetValue(nil)
+	end)
+
+	local SubTab2 = TabBox:AddTab("Transfering")
+
+	SubTab2:AddDropdown("ConfigurationList", {
+		Values = CombatTab:GetConfigurationList(),
+
+		Default = 1, -- number index of the value / string
+		Multi = false, -- true / false, allows multiple choices to be selected
+		AllowNull = true,
+
+		Text = "Configuration list",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString = Value
+		end,
+	})
+
+	SubTab2:AddInput("ConfigNameInput", {
+		Numeric = false,
+		Finished = false,
+		Text = "Configuration name",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationNameString = Value
+		end,
+	})
+
+	SubTab2
+		:AddButton("Create config", function()
+			CombatTab:CreateConfigurationWithName(Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationNameString)
+			Options.ConfigurationList.Values = CombatTab:GetConfigurationList()
+			Options.ConfigurationList:SetValues()
+			Options.ConfigurationList:SetValue(nil)
+		end)
+		:AddButton("Load config", function()
+			if
+				isfile(
+					Pascal:GetConfigurationPath()
+						.. "/CombatConfigurations/"
+						.. Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString
+						.. ".json"
+				)
+			then
+				CombatTab:LoadConfigurationFromName(Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString)
+			else
+				CombatTab:LoadLinoriaConfigFromName(Name)
+			end
+
+			CombatTab:UpdateBuilderSettingsList()
+			CombatTab:UpdateBlacklistedIdentifiersList()
+		end)
+
+	SubTab2:AddButton("Save config", function()
+		CombatTab:SaveConfigurationWithName(Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString)
+	end)
+
+	SubTab2:AddButton("Set as default config", function()
+		CombatTab:SetDefaultConfig(Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString)
+	end)
+
+	SubTab2:AddButton("Refresh configuration list", function()
+		Options.ConfigurationList.Values = CombatTab:GetConfigurationList()
+		Options.ConfigurationList:SetValues()
+		Options.ConfigurationList:SetValue(nil)
+	end)
+end
+
+function CombatTab:AutoParryGroup()
+	local TabBox = self.Tab:AddLeftTabbox("AutoParry")
 	local SubTab2 = TabBox:AddTab("Logger")
 
 	SubTab2:AddToggle("EnableAutoParryLogging", {
@@ -367,7 +920,7 @@ function CombatTab:AutoParryGroup()
 	})
 
 	SubTab2:AddDropdown("LoggerTypeDropDown", {
-		Values = { "Animations" },
+		Values = { "Animation", "Sound" },
 		Default = 1,
 		Multi = false,
 		Text = "Logger Type",
@@ -406,6 +959,20 @@ function CombatTab:AutoParryGroup()
 		end,
 	})
 
+	Depbox2:AddSlider("InfoLoggerMaximumSize", {
+		Text = "Info-logger maximum size",
+		Default = 8,
+		Min = 0,
+		Max = 20,
+		Rounding = 0,
+		Compact = false,
+		Suffix = "el",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryLogging.MaximumSize = Value
+		end,
+	})
+
 	Depbox2:SetupDependencies({
 		{ Toggles.EnableAutoParryLogging, true }, -- We can also pass `false` if we only want our features to show when the toggle is off!
 	})
@@ -416,11 +983,30 @@ function CombatTab:AutoParryGroup()
 		Text = "Enable auto-parry",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
-			if Value == false then
+			if Value == false and Pascal:GetConfig().AutoParry.ShowAutoParryNotifications then
 				Library:Notify("You have enabled the SmartParry technology!", 3.0)
 			end
 
-			Pascal:GetConfig().AutoParry.Enabled = Value
+			if not Pascal:GetConfig().AutoParry.BindEnabled then
+				Pascal:GetConfig().AutoParry.Enabled = Value
+			end
+		end,
+	})
+
+	SubTab3:AddToggle("EnableAutoParryBindToggle", {
+		Text = "Enable auto-parry bind",
+		Default = false, -- Default value (true / false)
+		Callback = function(Value)
+			Options.AutoParryBind.NoUI = not Value
+			Pascal:GetConfig().AutoParry.BindEnabled = Value
+		end,
+	}):AddKeyPicker("AutoParryBind", {
+		Default = "X",
+		NoUI = not Pascal:GetConfig().AutoParry.BindEnabled,
+		Text = "Auto-parry bind",
+		Modes = { "Toggle", "Hold" },
+		Callback = function(State)
+			Pascal:GetConfig().AutoParry.Enabled = State
 		end,
 	})
 
@@ -432,6 +1018,14 @@ function CombatTab:AutoParryGroup()
 		Tooltip = "For now, the only method here is KeyPress.",
 		Callback = function(Value)
 			Pascal:GetConfig().AutoParry.InputMethod = Value
+		end,
+	})
+
+	SubTab3:AddToggle("ShouldNotifyUser", {
+		Text = "Show auto-parry notifications",
+		Default = true, -- Default value (true / false)
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParry.ShowAutoParryNotifications = Value
 		end,
 	})
 
@@ -600,338 +1194,45 @@ function CombatTab:AutoParryGroup()
 	})
 end
 
-function CombatTab:BuilderSettingsGroup()
-	local TabBox = self.Tab:AddRightTabbox("BuilderSettings")
-
-	local SubTab1 = TabBox:AddTab("Settings")
-	SubTab1:AddDropdown("BuilderSettingsList", {
-		Values = CombatTab:UpdateBuilderSettingsList(),
-
-		Default = 1, -- number index of the value / string
-		Multi = false, -- true / false, allows multiple choices to be selected
-		AllowNull = true,
-
-		Text = "Builder settings list",
-
-		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.CurrentActiveSettingString = Value
-
-			local BuilderSetting = Pascal:GetBuilderSettingFromIdentifier(Value)
-			if not BuilderSetting then
-				return
-			end
-
-			Options.AnimationNickNameInput:SetValue(BuilderSetting.NickName)
-			Options.AnimationIdInput:SetValue(BuilderSetting.AnimationId)
-			Options.MinimumDistanceSlider:SetValue(BuilderSetting.MinimumDistance)
-			Options.MaximumDistanceSlider:SetValue(BuilderSetting.MaximumDistance)
-			Options.AttemptDelayInput:SetValue(BuilderSetting.AttemptDelay)
-			Options.ParryRepeatSlider:SetValue(BuilderSetting.ParryRepeatTimes)
-			Options.ParryRepeatDelayInput:SetValue(BuilderSetting.ParryRepeatDelay)
-			Toggles.EnableParryRepeat:SetValue(BuilderSetting.ParryRepeat)
-			Toggles.RollInsteadOfParryToggle:SetValue(BuilderSetting.ShouldRoll)
-			Toggles.BlockInsteadOfParryToggle:SetValue(BuilderSetting.ShouldBlock)
-			Toggles.EnableParryRepeatAnimationEnds:SetValue(BuilderSetting.ParryRepeatAnimationEnds)
-			Toggles.DelayUntilInRange:SetValue(BuilderSetting.DelayUntilInRange)
-			Toggles.ActivateOnEnd:SetValue(BuilderSetting.ActivateOnEnd)
-		end,
-	})
-
-	SubTab1:AddButton("Register setting into list", function()
-		local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList
-
-		if BuilderSettingsList[Pascal:GetConfig().AutoParryBuilder.AnimationId] then
-			Library:Notify(
-				string.format(
-					"%s(%s) is already in list, cannot re-register it",
-					Pascal:GetConfig().AutoParryBuilder.NickName,
-					Pascal:GetConfig().AutoParryBuilder.AnimationId
-				),
-				2.5
-			)
-
-			return
-		end
-
-		-- Handle the builder settings list
-		BuilderSettingsList[Pascal:GetConfig().AutoParryBuilder.AnimationId] = {
-			Identifier = string.format(
-				"%s | %s",
-				Pascal:GetConfig().AutoParryBuilder.NickName,
-				Pascal:GetConfig().AutoParryBuilder.AnimationId
-			),
-
-			NickName = Pascal:GetConfig().AutoParryBuilder.NickName,
-			AnimationId = Pascal:GetConfig().AutoParryBuilder.AnimationId,
-			MinimumDistance = Pascal:GetConfig().AutoParryBuilder.MinimumDistance,
-			MaximumDistance = Pascal:GetConfig().AutoParryBuilder.MaximumDistance,
-			AttemptDelay = Pascal:GetConfig().AutoParryBuilder.AttemptDelay,
-			ShouldRoll = Pascal:GetConfig().AutoParryBuilder.ShouldRoll,
-			ShouldBlock = Pascal:GetConfig().AutoParryBuilder.ShouldBlock,
-			ParryRepeat = Pascal:GetConfig().AutoParryBuilder.ParryRepeat,
-			ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder.ParryRepeatTimes,
-			ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder.ParryRepeatDelay,
-			ParryRepeatAnimationEnds = Pascal:GetConfig().AutoParryBuilder.ParryRepeatAnimationEnds,
-			DelayUntilInRange = Pascal:GetConfig().AutoParryBuilder.DelayUntilInRange,
-			ActivateOnEnd = Pascal:GetConfig().AutoParryBuilder.ActivateOnEnd,
-		}
-
-		Library:Notify(
-			string.format(
-				"Registered %s(%s) into list",
-				Pascal:GetConfig().AutoParryBuilder.NickName,
-				Pascal:GetConfig().AutoParryBuilder.AnimationId
-			),
-			2.5
-		)
-
-		CombatTab:UpdateBuilderSettingsList()
-	end)
-
-	SubTab1:AddButton("Update setting from list", function()
-		local BuilderSetting =
-			Pascal:GetBuilderSettingFromIdentifier(Pascal:GetConfig().AutoParryBuilder.CurrentActiveSettingString)
-
-		if not BuilderSetting then
-			return
-		end
-
-		Library:Notify(
-			string.format("Updated %s(%s) from list", BuilderSetting.NickName, BuilderSetting.AnimationId),
-			2.5
-		)
-
-		-- Handle the builder settings list
-		BuilderSetting.Identifier = string.format(
-			"%s | %s",
-			Pascal:GetConfig().AutoParryBuilder.NickName,
-			Pascal:GetConfig().AutoParryBuilder.AnimationId
-		)
-
-		BuilderSetting.NickName = Pascal:GetConfig().AutoParryBuilder.NickName
-		BuilderSetting.MinimumDistance = Pascal:GetConfig().AutoParryBuilder.MinimumDistance
-		BuilderSetting.MaximumDistance = Pascal:GetConfig().AutoParryBuilder.MaximumDistance
-		BuilderSetting.AttemptDelay = Pascal:GetConfig().AutoParryBuilder.AttemptDelay
-		BuilderSetting.ShouldRoll = Pascal:GetConfig().AutoParryBuilder.ShouldRoll
-		BuilderSetting.ShouldBlock = Pascal:GetConfig().AutoParryBuilder.ShouldBlock
-		BuilderSetting.ParryRepeat = Pascal:GetConfig().AutoParryBuilder.ParryRepeat
-		BuilderSetting.ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder.ParryRepeatTimes
-		BuilderSetting.ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder.ParryRepeatDelay
-		BuilderSetting.ParryRepeatAnimationEnds = Pascal:GetConfig().AutoParryBuilder.ParryRepeatAnimationEnds
-		BuilderSetting.DelayUntilInRange = Pascal:GetConfig().AutoParryBuilder.DelayUntilInRange
-		BuilderSetting.ActivateOnEnd = Pascal:GetConfig().AutoParryBuilder.ActivateOnEnd
-
-		CombatTab:UpdateBuilderSettingsList()
-		Options.BuilderSettingsList:SetValue(nil)
-	end)
-
-	SubTab1:AddButton("Delete setting from list", function()
-		local BuilderSetting =
-			Pascal:GetBuilderSettingFromIdentifier(Pascal:GetConfig().AutoParryBuilder.CurrentActiveSettingString)
-
-		if not BuilderSetting then
-			return
-		end
-
-		Library:Notify(
-			string.format("Deleted %s(%s) from list", BuilderSetting.NickName, BuilderSetting.AnimationId),
-			2.5
-		)
-
-		local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList
-		BuilderSettingsList[BuilderSetting.AnimationId] = nil
-
-		CombatTab:UpdateBuilderSettingsList()
-		Options.BuilderSettingsList:SetValue(nil)
-	end)
-
-	SubTab1:AddDropdown("BlacklistedAnimationIdsList", {
-		Values = CombatTab:UpdateBlacklistedAnimationIdsList(),
-
-		Default = 1, -- number index of the value / string
-		Multi = false, -- true / false, allows multiple choices to be selected
-		AllowNull = true,
-
-		Text = "Blacklisted Animation IDs",
-
-		Callback = function(Value)
-			Pascal:GetConfig().AutoParryLogging.CurrentActiveAnimationIdSetting = Value
-		end,
-	})
-
-	SubTab1:AddInput("AnimationIdInputBlacklist", {
-		Numeric = false,
-		Finished = false,
-		Text = "Hide Animation ID",
-
-		Callback = function(Value)
-			Pascal:GetConfig().AutoParryLogging.CurrentAnimationIdBlacklist = Value
-		end,
-	})
-
-	SubTab1:AddButton("Blacklist ID from logger", function()
-		local ActiveAnimationIdValue =
-			Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds[Pascal:GetConfig().AutoParryLogging.CurrentAnimationIdBlacklist]
-
-		if ActiveAnimationIdValue == true then
-			Library:Notify(
-				string.format(
-					"%s is already blacklisted from logging",
-					Pascal:GetConfig().AutoParryLogging.CurrentAnimationIdBlacklist
-				),
-				2.5
-			)
-
-			return
-		end
-
-		Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds[Pascal:GetConfig().AutoParryLogging.CurrentAnimationIdBlacklist] =
-			true
-
-		Library:Notify(
-			string.format(
-				"Blacklisted %s from logging",
-				Pascal:GetConfig().AutoParryLogging.CurrentAnimationIdBlacklist
-			),
-			2.5
-		)
-
-		CombatTab:UpdateBlacklistedAnimationIdsList()
-	end)
-
-	SubTab1:AddButton("Re-whitelist selected ID", function()
-		local ActiveAnimationIdValue =
-			Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds[Pascal:GetConfig().AutoParryLogging.CurrentActiveAnimationIdSetting]
-
-		if ActiveAnimationIdValue == nil then
-			Library:Notify(string.format("Active ID does not exist in the list (error)"), 2.5)
-			return
-		end
-
-		if ActiveAnimationIdValue == false then
-			Library:Notify(
-				string.format(
-					"%s is already whitelisted from logging",
-					Pascal:GetConfig().AutoParryLogging.CurrentActiveAnimationIdSetting
-				),
-				2.5
-			)
-
-			return
-		end
-
-		Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds[Pascal:GetConfig().AutoParryLogging.CurrentActiveAnimationIdSetting] =
-			false
-
-		Library:Notify(
-			string.format(
-				"Re-whitelisted %s from logging",
-				Pascal:GetConfig().AutoParryLogging.CurrentActiveAnimationIdSetting
-			),
-			2.5
-		)
-
-		CombatTab:UpdateBlacklistedAnimationIdsList()
-		Options.BlacklistedAnimationIdsList:SetValue(nil)
-	end)
-
-	local SubTab2 = TabBox:AddTab("Transfering")
-
-	SubTab2:AddDropdown("ConfigurationList", {
-		Values = CombatTab:GetConfigurationList(),
-
-		Default = 1, -- number index of the value / string
-		Multi = false, -- true / false, allows multiple choices to be selected
-		AllowNull = true,
-
-		Text = "Configuration list",
-
-		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString = Value
-		end,
-	})
-
-	SubTab2:AddInput("ConfigNameInput", {
-		Numeric = false,
-		Finished = false,
-		Text = "Configuration name",
-
-		Callback = function(Value)
-			Pascal:GetConfig().AutoParryLogging.ActiveConfigurationNameString = Value
-		end,
-	})
-
-	SubTab2
-		:AddButton("Create config", function()
-			CombatTab:CreateConfigurationWithName(Pascal:GetConfig().AutoParryLogging.ActiveConfigurationNameString)
-			Options.ConfigurationList.Values = CombatTab:GetConfigurationList()
-			Options.ConfigurationList:SetValues()
-			Options.ConfigurationList:SetValue(nil)
-		end)
-		:AddButton("Load config", function()
-			if
-				isfile(
-					Pascal:GetConfigurationPath()
-						.. "/CombatConfigurations/"
-						.. Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString
-						.. ".export"
-				)
-			then
-				CombatTab:LoadLinoriaConfigFromName(Name)
-			else
-				CombatTab:LoadConfigurationFromName(Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString)
-			end
-
-			CombatTab:UpdateBuilderSettingsList()
-			CombatTab:UpdateBlacklistedAnimationIdsList()
-		end)
-
-	SubTab2:AddButton("Save config", function()
-		CombatTab:SaveConfigurationWithName(Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString)
-	end)
-
-	SubTab2:AddButton("Set as default config", function()
-		CombatTab:SetDefaultConfig(Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString)
-	end)
-
-	SubTab2:AddButton("Refresh configuration list", function()
-		Options.ConfigurationList.Values = CombatTab:GetConfigurationList()
-		Options.ConfigurationList:SetValues()
-		Options.ConfigurationList:SetValue(nil)
-	end)
-end
-
 function CombatTab:CreateElements()
+	self:AutoParryBuilderGroup()
 	self:AutoParryGroup()
 	self:BuilderSettingsGroup()
 end
 
-function CombatTab:UpdateBlacklistedAnimationIdsList()
-	local VisibleBlacklistedAnimationIds = {}
+function CombatTab:UpdateBlacklistedIdentifiersList()
+	local VisibleBlacklistedIdentifiers = {}
 
-	for AnimationId, CurrentValue in next, Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds do
+	for Identifier, CurrentValue in next, Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers do
 		-- Don't add this to the current list if it is whitelisted...
 		if CurrentValue == false then
 			continue
 		end
 
-		table.insert(VisibleBlacklistedAnimationIds, AnimationId)
+		table.insert(VisibleBlacklistedIdentifiers, Identifier)
 	end
 
-	if Options.BlacklistedAnimationIdsList then
-		Options.BlacklistedAnimationIdsList.Values = VisibleBlacklistedAnimationIds
-		Options.BlacklistedAnimationIdsList:SetValues()
+	if Options.BlacklistedIdentifiersList then
+		Options.BlacklistedIdentifiersList.Values = VisibleBlacklistedIdentifiers
+		Options.BlacklistedIdentifiersList:SetValues()
 	end
 
-	return VisibleBlacklistedAnimationIds
+	return VisibleBlacklistedIdentifiers
 end
 
 function CombatTab:UpdateBuilderSettingsList()
 	local VisibleBuilderSettingsList = {}
 
-	for _, BuilderSettings in next, Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList do
+	for _, BuilderSettings in
+		next,
+		Pascal:GetConfig().AutoParryBuilder[Pascal:GetConfig().AutoParryBuilder.BuilderSettingType].BuilderSettingsList
+	do
 		table.insert(VisibleBuilderSettingsList, BuilderSettings.Identifier)
 	end
+
+	table.sort(VisibleBuilderSettingsList, function(a,b)
+		return a:lower() < b:lower()
+	end)
 
 	if Options.BuilderSettingsList then
 		Options.BuilderSettingsList.Values = VisibleBuilderSettingsList

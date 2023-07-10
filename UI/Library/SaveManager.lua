@@ -2,6 +2,7 @@
 local httpService = GetService("HttpService")
 
 local SaveManager = {}
+local CurrentWindow = nil
 do
 	SaveManager.Folder = "LinoriaLibSettings"
 	SaveManager.Ignore = {}
@@ -11,6 +12,54 @@ do
 				return { type = "Toggle", idx = idx, value = object.Value }
 			end,
 			Load = function(idx, data)
+				if Toggles[idx] and idx == "ShowKeyBindsToggle" and getgenv().PascalGhostMode then
+					task.spawn(function()
+						repeat
+							task.wait()
+						until CurrentWindow.Holder.Visible
+
+						Library:SetKeybindVisibility(data.value)
+
+						if Toggles[idx] then
+							Toggles[idx]:SetValue(data.value)
+						end
+					end)
+
+					return
+				end
+
+				if Toggles[idx] and idx == "ShowWaterMarkToggle" and getgenv().PascalGhostMode then
+					task.spawn(function()
+						repeat
+							task.wait()
+						until CurrentWindow.Holder.Visible
+
+						Library:SetWatermarkVisibility(data.value)
+
+						if Toggles[idx] then
+							Toggles[idx]:SetValue(data.value)
+						end
+					end)
+
+					return
+				end
+
+				if Toggles[idx] and idx == "EnableAutoParryLogging" and getgenv().PascalGhostMode then
+					task.spawn(function()
+						repeat
+							task.wait()
+						until CurrentWindow.Holder.Visible
+
+						Library:SetInfoLoggerVisibility(data.value)
+
+						if Toggles[idx] then
+							Toggles[idx]:SetValue(data.value)
+						end
+					end)
+
+					return
+				end
+
 				if Toggles[idx] then
 					Toggles[idx]:SetValue(data.value)
 				end
@@ -80,6 +129,10 @@ do
 		end
 	end
 
+	function SaveManager:SetWindow(window)
+		CurrentWindow = window
+	end
+
 	function SaveManager:SetFolder(folder)
 		self.Folder = folder
 		self:BuildFolderTree()
@@ -92,8 +145,27 @@ do
 
 		local fullPath = self.Folder .. "/Settings/" .. name .. ".json"
 
+		local function udimToTable(udim)
+			return {
+				["S"] = udim.Scale,
+				["O"] = udim.Offset,
+			}
+		end
+
+		local function udim2ToTable(udim2)
+			return {
+				["X"] = udimToTable(udim2.X),
+				["Y"] = udimToTable(udim2.Y),
+				["W"] = udimToTable(udim2.Width),
+				["H"] = udimToTable(udim2.Height),
+			}
+		end
+
 		local data = {
 			objects = {},
+			infoLoggerPosition = udim2ToTable(Library.InfoLoggerFrame.Position),
+			keybindPosition = udim2ToTable(Library.KeybindFrame.Position),
+			watermarkPosition = udim2ToTable(Library.Watermark.Position),
 		}
 
 		for idx, toggle in next, Toggles do
@@ -143,6 +215,25 @@ do
 			if self.Parser[option.type] then
 				self.Parser[option.type].Load(option.idx, option)
 			end
+		end
+
+		local function tableToUdim(table)
+			return UDim.new(table["S"], table["O"])
+		end
+
+		local function tableToUdim2(table)
+			return UDim2.new(
+				tableToUdim(table["X"]),
+				tableToUdim(table["Y"]),
+				tableToUdim(table["W"]),
+				tableToUdim(table["H"])
+			)
+		end
+
+		if decoded.keybindPosition and decoded.infoLoggerPosition and decoded.watermarkPosition then
+			Library.KeybindFrame.Position = tableToUdim2(decoded.keybindPosition)
+			Library.InfoLoggerFrame.Position = tableToUdim2(decoded.infoLoggerPosition)
+			Library.Watermark.Position = tableToUdim2(decoded.watermarkPosition)
 		end
 
 		return true
@@ -219,7 +310,9 @@ do
 				return self.Library:Notify("Failed to load autoload config: " .. err)
 			end
 
-			self.Library:Notify(string.format("Auto loaded config %q", name))
+			if not getgenv().PascalGhostMode then
+				self.Library:Notify(string.format("Auto loaded config %q", name))
+			end
 		end
 	end
 

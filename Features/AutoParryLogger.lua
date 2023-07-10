@@ -90,6 +90,32 @@ function AutoParryLogger:CacheAnimations()
 	AutoParryLogger.HasCachedAnimations = true
 end
 
+function AutoParryLogger:OnSoundPlayed(Player, Entity, HumanoidRootPart, LocalPlayerData, Sound)
+	if not Sound.SoundId or not HumanoidRootPart or not LocalPlayerData or not LocalPlayerData.HumanoidRootPart then
+		return
+	end
+
+	if Pascal:GetConfig().AutoParryLogging.Type ~= "Sound" then
+		return
+	end
+
+	if Player and Player == LocalPlayerData.Player and not Pascal:GetConfig().AutoParryLogging.LogYourself then
+		return
+	end
+
+	if not AutoParryLogger.IsDistanceOkBetweenParts(HumanoidRootPart, LocalPlayerData.HumanoidRootPart) then
+		return
+	end
+
+	Library:AddSoundDataToInfoLogger(
+		Entity.Name,
+		Sound.SoundId,
+		Sound.Name,
+		Sound,
+		AutoParryLogger.GetDistanceBetweenParts(HumanoidRootPart, LocalPlayerData.HumanoidRootPart)
+	)
+end
+
 function AutoParryLogger:OnAnimationPlayed(Player, Entity, HumanoidRootPart, LocalPlayerData, AnimationTrack)
 	if
 		not AnimationTrack.Animation
@@ -97,6 +123,10 @@ function AutoParryLogger:OnAnimationPlayed(Player, Entity, HumanoidRootPart, Loc
 		or not LocalPlayerData
 		or not LocalPlayerData.HumanoidRootPart
 	then
+		return
+	end
+
+	if Pascal:GetConfig().AutoParryLogging.Type ~= "Animation" then
 		return
 	end
 
@@ -137,7 +167,7 @@ function AutoParryLogger:RunUpdate()
 	AutoParryLogger:CacheAnimations()
 
 	-- Update blacklist for info-logger
-	Library:UpdateInfoLoggerBlacklist(Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds)
+	Library:UpdateInfoLoggerBlacklist(Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers)
 end
 
 return AutoParryLogger

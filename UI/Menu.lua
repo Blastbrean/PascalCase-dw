@@ -13,7 +13,7 @@ function Menu:Setup()
 	self.Window = Library:CreateWindow({
 		Title = "PascalCase | Deepwoken",
 		Center = true,
-		AutoShow = true,
+		AutoShow = not getgenv().PascalGhostMode,
 	})
 
 	-- Setup Tabs

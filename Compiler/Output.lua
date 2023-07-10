@@ -66,6 +66,7 @@ local Thread = require("Modules/Helpers/Thread")
 local Pascal = require("Modules/Helpers/Pascal")
 local Helper = require("Modules/Helpers/Helper")
 local Menu = require("UI/Menu")
+local AutoParry = require("Features/AutoParry")
 
 -- Entity folder & entity handler (special)...
 local EntityFolder = nil
@@ -91,13 +92,15 @@ local function StartDetachFn()
 			Pascal:Reset()
 
 			-- Remove events...
-			RenderEventObject:Disconnect()
-			EntityHandlerObject:Disconnect()
-			OnTeleportEventObject:Disconnect()
+			if not Pascal:DebugPreventYield() then
+				RenderEventObject:Disconnect()
+				EntityHandlerObject:Disconnect()
+				OnTeleportEventObject:Disconnect()
 
-			-- Special disconnect (see EventHandler)...
-			if EntityHandler.DisconnectAutoParry then
-				EntityHandler.DisconnectAutoParry()
+				-- Special disconnect (see EventHandler)...
+				if EntityHandler.DisconnectAutoParry then
+					EntityHandler.DisconnectAutoParry()
+				end
 			end
 
 			-- Disconnect stuff...
@@ -126,50 +129,61 @@ local function MainThreadFn()
 			-- Reset Pascal...
 			Pascal:Reset()
 
-			-- Queue our script on teleport...
-			OnTeleportEventObject:Connect(function(State, PlaceId, SpawnName)
-				if State ~= Enum.TeleportState.RequestedFromServer then
-					return
+			if not Pascal:DebugPreventYield() then
+				-- Queue our script on teleport...
+				OnTeleportEventObject:Connect(function(State, PlaceId, SpawnName)
+					if State ~= Enum.TeleportState.RequestedFromServer then
+						return
+					end
+
+					if not getgenv().PascalGhostMode then
+						-- Notify user...
+						Library:Notify("PascalCase is queuing itself on teleport...", 5.0)
+					end
+
+					-- Queue our script to run...
+					Pascal:GetMethods().QueueOnTeleport(Pascal:GetQueueScript())
+				end)
+
+				-- Stop execution if we're in the start menu...
+				if Pascal:GetPlaceId() == 4111023553 then
+					if not getgenv().PascalGhostMode then
+						-- Notify user...
+						Library:Notify("PascalCase cannot run in the start menu...", 5.0)
+					end
+
+					-- Stop script...
+					return Pascal:StopScriptWithReason(MainThread, "Stopping execution, we are in the start menu!")
 				end
 
-				-- Notify user...
-				Library:Notify("PascalCase is queuing itself on teleport...", 5.0)
+				-- Special event, aswell as the fact we have to do this after the start menu check and queue so we don't yield...
+				EntityFolder = Workspace:WaitForChild("Live", math.huge)
+				EntityHandlerObject = Event:New(EntityFolder.ChildAdded)
 
-				-- Queue our script to run...
-				Pascal:GetMethods().QueueOnTeleport(Pascal:GetQueueScript())
-			end)
+				-- Start effect replicator...
+				Pascal:GetEffectReplicator():Start()
 
-			-- Stop execution if we're in the start menu...
-			if Pascal:GetPlaceId() == 4111023553 then
-				-- Notify user...
-				Library:Notify("PascalCase cannot run in the start menu...", 5.0)
+				-- Connect all events...
+				RenderEventObject:Connect(RenderEvent.CallbackFn)
+				EntityHandlerObject:Connect(EntityHandler.CallbackFn)
 
-				-- Stop script...
-				return Pascal:StopScriptWithReason(MainThread, "Stopping execution, we are in the start menu!")
+				-- EntityHandler is a special event...
+				-- We should call the CallbackFn with our current entities...
+				Helper.LoopCurrentEntities(false, EntityFolder, function(Index, Entity)
+					EntityHandler.CallbackFn(Entity)
+				end)
+
+				-- Get auto-parry workspace sounds...
+				AutoParry.GetWorkspaceSounds()
 			end
-
-			-- Special event, aswell as the fact we have to do this after the start menu check and queue so we don't yield...
-			EntityFolder = Workspace:WaitForChild("Live", math.huge)
-			EntityHandlerObject = Event:New(EntityFolder.ChildAdded)
 
 			-- Create menu...
 			Menu:Setup()
 
-			-- Start effect replicator...
-			Pascal:GetEffectReplicator():Start()
-
-			-- Connect all events...
-			RenderEventObject:Connect(RenderEvent.CallbackFn)
-			EntityHandlerObject:Connect(EntityHandler.CallbackFn)
-
-			-- EntityHandler is a special event...
-			-- We should call the CallbackFn with our current entities...
-			Helper.LoopCurrentEntities(false, EntityFolder, function(Index, Entity)
-				EntityHandler.CallbackFn(Entity)
-			end)
-
 			-- Notify user that we successfully ran the script...
-			Library:Notify("Successfully loaded PascalCase, waiting for detach...", 5.0)
+			if not getgenv().PascalGhostMode then
+				Library:Notify("Successfully loaded PascalCase, waiting for detach...", 5.0)
+			end
 
 			-- Wait for detach
 			repeat
@@ -247,6 +261,7 @@ local Methods = {
 	KeyPress = keypress,
 	KeyRelease = keyrelease,
 	Random = math.random,
+	GetConnections = getconnections,
 	ToNumber = tonumber,
 	RandomSeed = math.randomseed,
 	Max = math.max,
@@ -294,7 +309,9 @@ end
 local DefaultSettings = {
 	AutoParry = {
 		Enabled = true,
+		BindEnabled = false,
 		InputMethod = "KeyPress",
+		ShowAutoParryNotifications = true,
 		AutoFeint = false,
 		IfLookingAtEnemy = false,
 		EnemyLookingAtYou = false,
@@ -312,30 +329,65 @@ local DefaultSettings = {
 		Hitchance = 100,
 	},
 	AutoParryBuilder = {
-		NickName = "",
-		AnimationId = "",
-		MinimumDistance = 5,
-		MaximumDistance = 15,
-		AttemptDelay = 150.0,
-		ShouldRoll = false,
-		ShouldBlock = false,
-		ParryRepeat = false,
-		ParryRepeatTimes = 3,
-		ParryRepeatDelay = 150.0,
-		ParryRepeatAnimationEnds = false,
-		BuilderSettingsList = {},
-		CurrentActiveSettingString = nil,
+		Animation = {
+			Type = "Animation",
+			NickName = "",
+			AnimationId = "",
+			MinimumDistance = 5,
+			MaximumDistance = 15,
+			AttemptDelay = 150.0,
+			ShouldRoll = false,
+			ShouldBlock = false,
+			ActivateOnEnd = false,
+			DelayUntilInRange = false,
+			ParryRepeat = false,
+			ParryRepeatTimes = 3,
+			ParryRepeatDelay = 150.0,
+			ParryRepeatAnimationEnds = false,
+			BuilderSettingsList = {},
+		},
+		Sound = {
+			Type = "Sound",
+			NickName = "",
+			SoundId = "",
+			MinimumDistance = 5,
+			MaximumDistance = 15,
+			AttemptDelay = 150.0,
+			ShouldRoll = false,
+			ParryRepeat = false,
+			ParryRepeatTimes = 3,
+			ParryRepeatDelay = 150.0,
+			BuilderSettingsList = {},
+		},
+		Part = {
+			Type = "Part",
+			NickName = "",
+			PartName = "",
+			MinimumDistance = 5,
+			MaximumDistance = 15,
+			AttemptDelay = 150.0,
+			ShouldRoll = false,
+			ShouldBlock = false,
+			ParryRepeat = false,
+			ParryRepeatTimes = 3,
+			ParryRepeatDelay = 150.0,
+			BuilderSettingsList = {},
+		},
+		ActiveConfigurationString = "",
+		ActiveConfigurationNameString = "",
+		BuilderSettingType = "Animation",
 	},
 	AutoParryLogging = {
 		Enabled = false,
-		Type = "Animations",
-		CurrentAnimationIdBlacklist = "",
-		BlacklistedAnimationIds = {},
+		Type = "Animation",
+		CurrentIdentifierBlacklist = "",
+		BlacklistedIdentifiers = {},
 		MinimumDistance = 5.0,
 		MaximumDistance = 15.0,
+		MaximumSize = 8,
 		LogYourself = false,
 		BlockLogged = false,
-		ActiveConfigurationString = {},
+		CurrentActiveIdentifiersSetting = {},
 	},
 }
 
@@ -356,17 +408,24 @@ function Pascal:GetQueueScript()
 	return "loadstring(game:HttpGet('https://raw.githubusercontent.com/Blastbrean/PascalCase/main/Main.lua'))()"
 end
 
-function Pascal:GetBuilderSettingFromIdentifier(Identifier)
-	return Helper.LoopLuaTable(Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList, function(Index, BuilderSetting)
-		if BuilderSetting.Identifier ~= Identifier then
-			return false
-		end
+function Pascal:DebugPreventYield()
+	return false
+end
 
-		return {
-			ReturningData = true,
-			Data = BuilderSetting,
-		}
-	end)
+function Pascal:GetBuilderSettingFromIdentifier(Type, Identifier)
+	return Helper.LoopLuaTable(
+		Pascal:GetConfig().AutoParryBuilder[Type].BuilderSettingsList,
+		function(Index, BuilderSetting)
+			if BuilderSetting.Identifier ~= Identifier then
+				return false
+			end
+
+			return {
+				ReturningData = true,
+				Data = BuilderSetting,
+			}
+		end
+	)
 end
 
 function Pascal:GetLogger()
@@ -748,10 +807,12 @@ function Logger:Print(String, ...)
 	-- Format string
 	local FormatString = string.format(String, ...)
 
-	-- Print using rconsoleprint
-	rconsoleprint(FormatString .. "\n")
+	if not getgenv().PascalGhostMode then
+		-- Print using rconsoleprint
+		rconsoleprint(FormatString .. "\n")
+	end
 
-	-- Add to current log our current string
+	-- Add to current log, our current string...
 	table.insert(self.CurrentLog, FormatString)
 end
 
@@ -778,8 +839,10 @@ local AutoParry = {
 	EntityData = {},
 	Connections = {},
 	CanLocalPlayerFeint = false,
+	IsAutoParryRunning = false,
 	TimeWhenOutOfRange = nil,
 	AnimationFeint = false,
+	StartedBlocking = false,
 	SoundFeint = false,
 }
 
@@ -940,6 +1003,14 @@ function AutoParry.RunParryFn()
 	end
 end
 
+function AutoParry.Notify(Text, Time)
+	if not Pascal:GetConfig().AutoParry.ShowAutoParryNotifications then
+		return
+	end
+
+	Library:Notify(Text, Time)
+end
+
 function AutoParry.EndBlockingStates(PlayerData)
 	Helper.LoopLuaTable(PlayerData.AnimationData, function(Index, AnimationData)
 		if not AnimationData.StartedBlocking then
@@ -951,7 +1022,7 @@ function AutoParry.EndBlockingStates(PlayerData)
 		end
 
 		-- Get animation builder data
-		local BuilderData = AutoParry:GetBuilderData(AnimationData.AnimationTrack.Animation.AnimationId)
+		local BuilderData = AutoParry:GetBuilderData("Animation", AnimationData.AnimationTrack.Animation.AnimationId)
 		if not BuilderData then
 			return false
 		end
@@ -962,8 +1033,11 @@ function AutoParry.EndBlockingStates(PlayerData)
 		-- End blocking state
 		AnimationData.StartedBlocking = false
 
+		-- Stop blocking state...
+		AutoParry.StartedBlocking = false
+
 		-- Notify user that blocking has stopped
-		Library:Notify(
+		AutoParry.Notify(
 			string.format("Ended blocking on animation %s(%s)", BuilderData.NickName, BuilderData.AnimationId),
 			2.0
 		)
@@ -1030,7 +1104,8 @@ function AutoParry.ValidateState(
 	Player,
 	SkipCheckForAttacking,
 	AfterDelay,
-	FirstTime
+	FirstTime,
+	SpecialType
 )
 	-- Only do this if there is a valid humanoid-root-part...
 	if HumanoidRootPart and LocalPlayerData.HumanoidRootPart then
@@ -1063,7 +1138,7 @@ function AutoParry.ValidateState(
 			and Distance <= Pascal:GetConfig().AutoParry.DistanceThresholdInRange
 		then
 			-- Notify user that we have triggered delay until in range
-			Library:Notify("Player went out of range, delaying until in range...", 2.0)
+			AutoParry.Notify("Player went out of range, delaying until in range...", 2.0)
 
 			-- Save time to account for delay later...
 			AutoParry.TimeWhenOutOfRange = Pascal:GetMethods().ExecutionClock()
@@ -1073,7 +1148,7 @@ function AutoParry.ValidateState(
 			until AutoParry.CheckDistanceBetweenParts(BuilderData, HumanoidRootPart, LocalPlayerData.HumanoidRootPart)
 
 			-- Resume...
-			Library:Notify("Back in range, resuming auto-parry...", 2.0)
+			AutoParry.Notify("Back in range, resuming auto-parry...", 2.0)
 		end
 
 		-- Check if players are facing each-other
@@ -1115,8 +1190,12 @@ function AutoParry.ValidateState(
 		and Player ~= LocalPlayerData.Player
 	then
 		-- Notify user that we have triggered auto-feint
-		Library:Notify(
-			string.format("Triggered auto-feint on %s(%s)", BuilderData.NickName, BuilderData.AnimationId),
+		AutoParry.Notify(
+			string.format(
+				"Triggered auto-feint on %s(%s)",
+				BuilderData.NickName,
+				BuilderData.AnimationId and BuilderData.AnimationId or BuilderData.SoundId
+			),
 			2.0
 		)
 
@@ -1145,7 +1224,7 @@ function AutoParry.ValidateState(
 		and Player ~= LocalPlayerData.Player
 	then
 		-- Notify user...
-		Library:Notify(
+		AutoParry.Notify(
 			string.format("Cannot dodge on animation %s(%s)", BuilderData.NickName, BuilderData.AnimationId),
 			2.0
 		)
@@ -1163,8 +1242,10 @@ function AutoParry.ValidateState(
 	end
 
 	-- Is our animaton still playing?
-	if not BuilderData.ActivateOnEnd and not AnimationTrack.IsPlaying then
-		return false
+	if not SpecialType then
+		if not BuilderData.ActivateOnEnd and not AnimationTrack.IsPlaying then
+			return false
+		end
 	end
 
 	-- Did they feint?
@@ -1185,7 +1266,8 @@ function AutoParry.DelayAndValidateStateFn(
 	HumanoidRootPart,
 	Humanoid,
 	Player,
-	SkipCheckForAttacking
+	SkipCheckForAttacking,
+	SpecialType
 )
 	-- Make sure we are valid...
 	if
@@ -1197,7 +1279,9 @@ function AutoParry.DelayAndValidateStateFn(
 			Humanoid,
 			Player,
 			SkipCheckForAttacking,
-			false
+			false,
+			false,
+			SpecialType
 		)
 	then
 		return false
@@ -1216,7 +1300,9 @@ function AutoParry.DelayAndValidateStateFn(
 			Humanoid,
 			Player,
 			SkipCheckForAttacking,
-			true
+			true,
+			false,
+			SpecialType
 		)
 	then
 		return false
@@ -1320,10 +1406,10 @@ function AutoParry:EmplaceEntityToData(Entity)
 	return AutoParry.EntityData[Entity]
 end
 
-function AutoParry:GetBuilderData(AnimationId)
+function AutoParry:GetBuilderData(Type, Identifier)
 	-- Builder settings list
-	local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList
-	return BuilderSettingsList[AnimationId]
+	local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder[Type].BuilderSettingsList
+	return BuilderSettingsList[Identifier]
 end
 
 function AutoParry:OnAnimationEnded(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid)
@@ -1331,7 +1417,248 @@ function AutoParry:OnAnimationEnded(EntityData, AnimationTrack, Animation, Playe
 	AutoParry.EndBlockingStates(EntityData)
 end
 
-function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid)
+function AutoParry:OnSoundPlayed(EntityData, Sound, Player, HumanoidRootPart, Humanoid)
+	if not HumanoidRootPart then
+		return
+	end
+
+	-- Ok, before we do anything... Let's check for these first.
+	local LocalPlayerData = Helper.GetLocalPlayerWithData()
+	if not LocalPlayerData or LocalPlayerData.Humanoid.Health <= 0 then
+		return
+	end
+
+	local LeftHand = LocalPlayerData.Character:FindFirstChild("LeftHand")
+	local RightHand = LocalPlayerData.Character:FindFirstChild("RightHand")
+	if not LeftHand or not RightHand then
+		return
+	end
+
+	local HandWeapon = LeftHand:FindFirstChild("HandWeapon") or RightHand:FindFirstChild("HandWeapon")
+	if not HandWeapon then
+		return
+	end
+
+	if not Pascal:GetConfig().AutoParry.Enabled then
+		return
+	end
+
+	if LocalPlayerData.Player == Player and not Pascal:GetConfig().AutoParry.LocalAttackAutoParry then
+		return
+	end
+
+	-- Get sound builder data
+	local BuilderData = AutoParry:GetBuilderData("Sound", Sound.SoundId)
+	if not BuilderData then
+		return
+	end
+
+	-- Validate current auto-parry state is OK
+	if
+		not AutoParry.ValidateState(
+			nil,
+			BuilderData,
+			LocalPlayerData,
+			HumanoidRootPart,
+			Humanoid,
+			Player,
+			false,
+			false,
+			true,
+			true
+		)
+	then
+		return
+	end
+
+	-- Randomize seed according to the timestamp (ms)
+	Pascal:GetMethods().RandomSeed(DateTime.now().UnixTimestampMillis)
+
+	-- Check hitchance
+	if Pascal:GetMethods().Random(0.0, 100.0) > Pascal:GetConfig().AutoParry.Hitchance then
+		return
+	end
+
+	-- Calculate delay(s)
+	local function CalculateCurrentDelay()
+		local AttemptMilisecondsConvertedToSeconds = Pascal:GetMethods().ToNumber(BuilderData.AttemptDelay)
+				and Pascal:GetMethods().ToNumber(BuilderData.AttemptDelay) / 1000
+			or 0
+
+		local RepeatMilisecondsConvertedToSeconds = Pascal:GetMethods().ToNumber(BuilderData.ParryRepeatDelay)
+				and Pascal:GetMethods().ToNumber(BuilderData.ParryRepeatDelay) / 1000
+			or 0
+
+		-- Delay(s) accounting for global delay...
+		AttemptMilisecondsConvertedToSeconds = AttemptMilisecondsConvertedToSeconds
+			+ ((Pascal:GetConfig().AutoParry.AdjustTimingsBySlider / 1000) or 0)
+
+		RepeatMilisecondsConvertedToSeconds = RepeatMilisecondsConvertedToSeconds
+			+ ((Pascal:GetConfig().AutoParry.AdjustTimingsBySlider / 1000) or 0)
+
+		-- Ping converted to two decimal places...
+		local PingAdjustmentAmount = Pascal:GetMethods()
+			.Max(StatsService.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000, 0.0) * Pascal:GetMethods().Clamp(
+			((Pascal:GetConfig().AutoParry.PingAdjust or 0) / 100),
+			0.0,
+			1.0
+		)
+
+		local RepeatDelayAccountingForPingAdjustment = Pascal:GetMethods()
+			.Max(RepeatMilisecondsConvertedToSeconds - PingAdjustmentAmount, 0.0)
+
+		local AttemptDelayAccountingForPingAdjustment =
+			Pascal:GetMethods().Max(AttemptMilisecondsConvertedToSeconds - PingAdjustmentAmount, 0.0)
+
+		return {
+			AttemptDelay = AttemptDelayAccountingForPingAdjustment,
+			RepeatDelay = RepeatDelayAccountingForPingAdjustment,
+		}
+	end
+
+	-- Get delay
+	local CurrentDelay = CalculateCurrentDelay()
+
+	-- Notify
+	AutoParry.Notify(
+		string.format(
+			"Delaying on sound %s(%s) for %.3f seconds",
+			BuilderData.NickName,
+			BuilderData.SoundId,
+			CurrentDelay.AttemptDelay
+		),
+		2.0
+	)
+
+	-- Set that we are running
+	AutoParry.IsAutoParryRunning = true
+
+	-- Wait for delay to occur
+	local DelayResult = AutoParry.DelayAndValidateStateFn(
+		CurrentDelay.AttemptDelay,
+		nil,
+		BuilderData,
+		LocalPlayerData,
+		HumanoidRootPart,
+		Humanoid,
+		Player,
+		false,
+		true
+	)
+
+	-- Set that we are not running
+	AutoParry.IsAutoParryRunning = false
+
+	if not DelayResult then
+		-- Notify user that delay has failed
+		AutoParry.Notify(
+			string.format(
+				"Failed delay on sound %s(%s) due to state validation",
+				BuilderData.NickName,
+				BuilderData.SoundId
+			),
+			2.0
+		)
+
+		return
+	end
+
+	-- Handle auto-parry repeats
+	if
+		BuilderData.ParryRepeat
+		and not BuilderData.ShouldBlock
+		and not BuilderData.ShouldRoll
+		and not BuilderData.ParryRepeatAnimationEnds
+	then
+		local RepeatDelayResult = nil
+
+		-- Loop how many times we need to repeat...
+		for RepeatIndex = 0, (BuilderData.ParryRepeatTimes or 0) do
+			-- Get delay
+			local CurrentDelay = CalculateCurrentDelay()
+
+			-- Parry
+			AutoParry.RunParryFn()
+
+			-- Notify user that animation has repeated
+			AutoParry.Notify(
+				string.format(
+					"(%i) Activated on sound %s(%s) (%s: %.3f seconds)",
+					RepeatIndex,
+					BuilderData.NickName,
+					BuilderData.SoundId,
+					RepeatDelayResult and "repeat-delay" or "delay",
+					RepeatDelayResult and CurrentDelay.RepeatDelay or CurrentDelay.AttemptDelay
+				),
+				2.0
+			)
+
+			-- Set that we are running
+			AutoParry.IsAutoParryRunning = true
+
+			-- Wait for delay to occur
+			RepeatDelayResult = AutoParry.DelayAndValidateStateFn(
+				CurrentDelay.RepeatDelay,
+				nil,
+				BuilderData,
+				LocalPlayerData,
+				HumanoidRootPart,
+				Humanoid,
+				Player,
+				true,
+				true
+			)
+
+			-- Set that we are not running
+			AutoParry.IsAutoParryRunning = false
+
+			if not RepeatDelayResult then
+				-- Notify user that delay has failed
+				AutoParry.Notify(
+					string.format(
+						"Failed delay on sound %s(%s) due to state validation",
+						BuilderData.NickName,
+						BuilderData.SoundId
+					),
+					2.0
+				)
+			end
+		end
+
+		-- Return...
+		return
+	end
+
+	-- Handle normal auto-parry
+	if not BuilderData.ShouldBlock and not BuilderData.ShouldRoll and not BuilderData.ParryRepeat then
+		-- Run auto-parry
+		AutoParry.RunParryFn()
+
+		-- Notify user that animation has ended
+		AutoParry.Notify(string.format("Activated on sound %s(%s)", BuilderData.NickName, BuilderData.SoundId), 2.0)
+
+		-- Return...
+		return
+	end
+
+	-- Handle dodging
+	if BuilderData.ShouldRoll then
+		-- Start dodging...
+		AutoParry.RunDodgeFn(
+			Entity,
+			Pascal:GetConfig().AutoParry.ShouldRollCancel,
+			Pascal:GetConfig().AutoParry.RollCancelDelay
+		)
+
+		-- Notify user that we have dodged
+		AutoParry.Notify(string.format("Dodged sound %s(%s)", BuilderData.NickName, BuilderData.SoundId), 2.0)
+
+		-- Return...
+		return
+	end
+end
+
+function AutoParry:OnAnimationPlayed(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid)
 	if not HumanoidRootPart then
 		return
 	end
@@ -1362,7 +1689,7 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 	end
 
 	-- Get animation builder data
-	local BuilderData = AutoParry:GetBuilderData(Animation.AnimationId)
+	local BuilderData = AutoParry:GetBuilderData("Animation", Animation.AnimationId)
 	if not BuilderData then
 		return
 	end
@@ -1378,7 +1705,7 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 
 	-- Check if we have activate on end on...
 	if BuilderData.ActivateOnEnd then
-		Library:Notify(
+		AutoParry.Notify(
 			string.format(
 				"Delaying on animation %s(%s) until animation ends...",
 				BuilderData.NickName,
@@ -1521,8 +1848,11 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 	-- Get delay
 	local CurrentDelay = CalculateCurrentDelay()
 
+	-- Set that we are running
+	AutoParry.IsAutoParryRunning = true
+
 	-- Notify
-	Library:Notify(
+	AutoParry.Notify(
 		string.format(
 			"Delaying on animation %s(%s) for %.3f seconds",
 			BuilderData.NickName,
@@ -1546,7 +1876,7 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 
 	if not DelayResult then
 		-- Notify user that delay has failed
-		Library:Notify(
+		AutoParry.Notify(
 			string.format(
 				"Failed delay on animation %s(%s) due to state validation",
 				BuilderData.NickName,
@@ -1557,6 +1887,9 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 
 		return
 	end
+
+	-- Set that we are not running
+	AutoParry.IsAutoParryRunning = false
 
 	if
 		BuilderData.ParryRepeat
@@ -1574,7 +1907,7 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 			AutoParry.RunParryFn()
 
 			-- Notify user that animation has repeated
-			Library:Notify(
+			AutoParry.Notify(
 				string.format(
 					"(%i) Activated on animation %s(%s) (%s: %.3f seconds)",
 					RepeatIndex,
@@ -1585,6 +1918,9 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 				),
 				2.0
 			)
+
+			-- Set that we are running
+			AutoParry.IsAutoParryRunning = true
 
 			-- Wait for delay to occur
 			RepeatDelayResult = AutoParry.DelayAndValidateStateFn(
@@ -1598,9 +1934,12 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 				true
 			)
 
+			-- Set that we are not running
+			AutoParry.IsAutoParryRunning = false
+
 			if not RepeatDelayResult then
 				-- Notify user that delay has failed
-				Library:Notify(
+				AutoParry.Notify(
 					string.format(
 						"Failed delay on animation %s(%s) due to state validation",
 						BuilderData.NickName,
@@ -1635,7 +1974,7 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 			AutoParry.RunParryFn()
 
 			-- Notify user that animation has repeated
-			Library:Notify(
+			AutoParry.Notify(
 				string.format(
 					"(%i) Activated on animation %s(%s) (%s: %.3f seconds)",
 					RepeatIndex,
@@ -1646,6 +1985,9 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 				),
 				2.0
 			)
+
+			-- Set that we are running
+			AutoParry.IsAutoParryRunning = true
 
 			-- Wait for delay to occur
 			RepeatDelayResult = AutoParry.DelayAndValidateStateFn(
@@ -1659,9 +2001,12 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 				true
 			)
 
+			-- Set that we are not running
+			AutoParry.IsAutoParryRunning = false
+
 			if not RepeatDelayResult then
 				-- Notify user that delay has failed
-				Library:Notify(
+				AutoParry.Notify(
 					string.format(
 						"Failed delay on animation %s(%s) due to state validation",
 						BuilderData.NickName,
@@ -1682,7 +2027,7 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 		AutoParry.RunParryFn()
 
 		-- Notify user that animation has ended
-		Library:Notify(
+		AutoParry.Notify(
 			string.format("Activated on animation %s(%s)", BuilderData.NickName, BuilderData.AnimationId),
 			2.0
 		)
@@ -1697,13 +2042,16 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 		AutoParry.StartBlockFn()
 
 		-- Notify user that blocking has started
-		Library:Notify(
+		AutoParry.Notify(
 			string.format("Started blocking on animation %s(%s)", BuilderData.NickName, BuilderData.AnimationId),
 			2.0
 		)
 
 		-- Set animation data that we started blocking
 		AnimationData.StartedBlocking = true
+
+		-- Start blocking state...
+		AutoParry.StartedBlocking = true
 
 		-- Return...
 		return
@@ -1719,15 +2067,11 @@ function AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, 
 		)
 
 		-- Notify user that we have dodged
-		Library:Notify(string.format("Dodged animation %s(%s)", BuilderData.NickName, BuilderData.AnimationId), 2.0)
+		AutoParry.Notify(string.format("Dodged animation %s(%s)", BuilderData.NickName, BuilderData.AnimationId), 2.0)
 
 		-- Return...
 		return
 	end
-end
-
-function AutoParry:OnAnimationPlayed(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid)
-	AutoParry:MainAutoParry(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid)
 end
 
 function AutoParry.OnAnimationFeint(LocalPlayerData, HumanoidRootPart, Player)
@@ -1767,12 +2111,12 @@ function AutoParry.OnAnimationFeint(LocalPlayerData, HumanoidRootPart, Player)
 		and Player ~= LocalPlayerData.Player
 	then
 		-- Notify user...
-		Library:Notify("Caught animation-feint, unable to dodge...", 2.0)
+		AutoParry.Notify("Caught animation-feint, unable to dodge...", 2.0)
 		return
 	end
 
 	-- Notify user...
-	Library:Notify("Caught animation-feint, dodging feint...", 2.0)
+	AutoParry.Notify("Caught animation-feint, dodging feint...", 2.0)
 
 	-- Start dodging...
 	AutoParry.RunDodgeFn(
@@ -1782,7 +2126,7 @@ function AutoParry.OnAnimationFeint(LocalPlayerData, HumanoidRootPart, Player)
 	)
 
 	-- Notify user...
-	Library:Notify("Successfully dodged animation-feint...", 2.0)
+	AutoParry.Notify("Successfully dodged animation-feint...", 2.0)
 end
 
 function AutoParry.OnFeintSound(LocalPlayerData, HumanoidRootPart, Player)
@@ -1822,12 +2166,12 @@ function AutoParry.OnFeintSound(LocalPlayerData, HumanoidRootPart, Player)
 		and Player ~= LocalPlayerData.Player
 	then
 		-- Notify user...
-		Library:Notify("Caught sound-feint, unable to dodge...", 2.0)
+		AutoParry.Notify("Caught sound-feint, unable to dodge...", 2.0)
 		return
 	end
 
 	-- Notify user...
-	Library:Notify("Caught sound-feint, dodging feint...", 2.0)
+	AutoParry.Notify("Caught sound-feint, dodging feint...", 2.0)
 
 	-- Flag...
 	AutoParry.SoundFeint = true
@@ -1840,7 +2184,7 @@ function AutoParry.OnFeintSound(LocalPlayerData, HumanoidRootPart, Player)
 	)
 
 	-- Notify user...
-	Library:Notify("Successfully dodged sound-feint...", 2.0)
+	AutoParry.Notify("Successfully dodged sound-feint...", 2.0)
 end
 
 function AutoParry.OnFeintSoundEnd()
@@ -1878,26 +2222,167 @@ function AutoParry.FindSound(HumanoidRootPart, Name)
 	return SoundsFolder:FindFirstChild(Name)
 end
 
+function AutoParry.GetWorkspaceSounds()
+	table.insert(
+		AutoParry.Connections,
+		WorkspaceService.DescendantAdded:Connect(function(Descendant)
+			if typeof(Descendant) ~= "Instance" or (not Descendant:IsA("Sound")) then
+				return false
+			end
+
+			table.insert(
+				AutoParry.Connections,
+				Descendant.Played:Connect(function(SoundId)
+					Helper.TryAndCatch(
+						-- Try...
+						function()
+							local LocalPlayerData = Helper.GetLocalPlayerWithData()
+							if not LocalPlayerData then
+								return
+							end
+
+							-- Dummy markers...
+							local DummyMarkerOne = false
+							local DummyMarkerTwo = false
+
+							local Entity = Descendant:FindFirstAncestorWhichIsA("Model")
+							local HumanoidRootPart = Entity and Entity:FindFirstChild("HumanoidRootPart") or nil
+							if not Entity or not HumanoidRootPart then
+								-- Create a dummy entity...
+								Entity = Descendant.Parent
+								if not Entity then
+									return
+								end
+
+								-- Create a dummy humanoid-root-part...
+								HumanoidRootPart = Instance.new("Part")
+								HumanoidRootPart.Position = LocalPlayerData.HumanoidRootPart.Position
+
+								-- Marker one...
+								DummyMarkerOne = true
+							end
+
+							local Humanoid = Entity:FindFirstChild("Humanoid")
+							if not Humanoid then
+								-- Create a dummy humanoid...
+								Humanoid = Instance.new("Humanoid")
+								Humanoid.Health = math.huge
+
+								-- Marker two...
+								DummyMarkerTwo = true
+							end
+
+							-- Call OnSoundPlayed for AutoParry...
+							AutoParry:OnSoundPlayed(nil, Descendant, nil, HumanoidRootPart, Humanoid)
+
+							-- Call OnSoundPlayed for AutoParryLogger...
+							AutoParryLogger:OnSoundPlayed(nil, Entity, HumanoidRootPart, LocalPlayerData, Descendant)
+
+							-- Destroy our created instances (if we created them...)
+							if DummyMarkerOne then
+								HumanoidRootPart:Destroy()
+							end
+
+							if DummyMarkerTwo then
+								Humanoid:Destroy()
+							end
+						end,
+
+						-- Catch...
+						function(Error)
+							Pascal:GetLogger()
+								:Print("AutoParry (DescendantSound.Played) (%s) - Caught exception: %s", SoundId, Error)
+						end
+					)
+				end)
+			)
+		end)
+	)
+
+	Helper.LoopInstanceDescendants(WorkspaceService, function(Index, Descendant)
+		if typeof(Descendant) ~= "Instance" or (not Descendant:IsA("Sound")) then
+			return false
+		end
+
+		table.insert(
+			AutoParry.Connections,
+			Descendant.Played:Connect(function(SoundId)
+				Helper.TryAndCatch(
+					-- Try...
+					function()
+						local LocalPlayerData = Helper.GetLocalPlayerWithData()
+						if not LocalPlayerData then
+							return
+						end
+
+						-- Dummy markers...
+						local DummyMarkerOne = false
+						local DummyMarkerTwo = false
+
+						local Entity = Descendant:FindFirstAncestorWhichIsA("Model")
+						local HumanoidRootPart = Entity and Entity:FindFirstChild("HumanoidRootPart") or nil
+						if not Entity or not HumanoidRootPart then
+							-- Create a dummy entity...
+							Entity = Descendant.Parent
+							if not Entity then
+								return
+							end
+
+							-- Attempt to find something we can find a position off of...
+							local Part = Descendant:FindFirstAncestorWhichIsA("Part")
+								or Descendant:FindFirstAncestorWhichIsA("MeshPart")
+
+							-- Create a dummy humanoid-root-part...
+							HumanoidRootPart = Instance.new("Part")
+							HumanoidRootPart.Position = Part and Part.Position
+								or LocalPlayerData.HumanoidRootPart.Position
+
+							-- Marker one...
+							DummyMarkerOne = true
+						end
+
+						local Humanoid = Entity:FindFirstChild("Humanoid")
+						if not Humanoid then
+							-- Create a dummy humanoid...
+							Humanoid = Instance.new("Humanoid")
+							Humanoid.Health = math.huge
+
+							-- Marker two...
+							DummyMarkerTwo = true
+						end
+
+						-- Call OnSoundPlayed for AutoParry...
+						AutoParry:OnSoundPlayed(nil, Descendant, nil, HumanoidRootPart, Humanoid)
+
+						-- Call OnSoundPlayed for AutoParryLogger...
+						AutoParryLogger:OnSoundPlayed(nil, Entity, HumanoidRootPart, LocalPlayerData, Descendant)
+
+						-- Destroy our created instances (if we created them...)
+						if DummyMarkerOne then
+							HumanoidRootPart:Destroy()
+						end
+
+						if DummyMarkerTwo then
+							Humanoid:Destroy()
+						end
+					end,
+
+					-- Catch...
+					function(Error)
+						Pascal:GetLogger()
+							:Print("AutoParry (DescendantLoopSound.Played) (%s) - Caught exception: %s", SoundId, Error)
+					end
+				)
+			end)
+		)
+	end)
+end
+
 function AutoParry:OnEntityAdded(Entity)
 	local EntityData = AutoParry:EmplaceEntityToData(Entity)
-	if not EntityData then
-		return
-	end
-
 	local Humanoid = Entity:WaitForChild("Humanoid", math.huge)
-	if not Humanoid then
-		return
-	end
-
 	local HumanoidRootPart = Entity:WaitForChild("HumanoidRootPart", math.huge)
-	if not HumanoidRootPart then
-		return
-	end
-
 	local Animator = Humanoid:WaitForChild("Animator", math.huge)
-	if not Animator then
-		return
-	end
 
 	-- If this is the local-player, connect special event(s)...
 	local Player = Players:GetPlayerFromCharacter(Entity)
@@ -1967,7 +2452,7 @@ function AutoParry:OnEntityAdded(Entity)
 		)
 	end
 
-	-- Connect event to OnAnimationEnded...
+	-- Connect event(s) to OnAnimationPlayed & OnAnimationEnded...
 	table.insert(
 		AutoParry.Connections,
 		Animator.AnimationPlayed:Connect(function(AnimationTrack)
@@ -2160,6 +2645,32 @@ function AutoParryLogger:CacheAnimations()
 	AutoParryLogger.HasCachedAnimations = true
 end
 
+function AutoParryLogger:OnSoundPlayed(Player, Entity, HumanoidRootPart, LocalPlayerData, Sound)
+	if not Sound.SoundId or not HumanoidRootPart or not LocalPlayerData or not LocalPlayerData.HumanoidRootPart then
+		return
+	end
+
+	if Pascal:GetConfig().AutoParryLogging.Type ~= "Sound" then
+		return
+	end
+
+	if Player and Player == LocalPlayerData.Player and not Pascal:GetConfig().AutoParryLogging.LogYourself then
+		return
+	end
+
+	if not AutoParryLogger.IsDistanceOkBetweenParts(HumanoidRootPart, LocalPlayerData.HumanoidRootPart) then
+		return
+	end
+
+	Library:AddSoundDataToInfoLogger(
+		Entity.Name,
+		Sound.SoundId,
+		Sound.Name,
+		Sound,
+		AutoParryLogger.GetDistanceBetweenParts(HumanoidRootPart, LocalPlayerData.HumanoidRootPart)
+	)
+end
+
 function AutoParryLogger:OnAnimationPlayed(Player, Entity, HumanoidRootPart, LocalPlayerData, AnimationTrack)
 	if
 		not AnimationTrack.Animation
@@ -2167,6 +2678,10 @@ function AutoParryLogger:OnAnimationPlayed(Player, Entity, HumanoidRootPart, Loc
 		or not LocalPlayerData
 		or not LocalPlayerData.HumanoidRootPart
 	then
+		return
+	end
+
+	if Pascal:GetConfig().AutoParryLogging.Type ~= "Animation" then
 		return
 	end
 
@@ -2207,7 +2722,7 @@ function AutoParryLogger:RunUpdate()
 	AutoParryLogger:CacheAnimations()
 
 	-- Update blacklist for info-logger
-	Library:UpdateInfoLoggerBlacklist(Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds)
+	Library:UpdateInfoLoggerBlacklist(Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers)
 end
 
 return AutoParryLogger
@@ -2215,7 +2730,14 @@ return AutoParryLogger
 end)
 __bundle_register("Events/RenderEvent", function(require, _LOADED, __bundle_register, __bundle_modules)
 -- Module
-local RenderEvent = {}
+local RenderEvent = {
+	SecondFrameTimestamp = nil,
+	ElapsedFramesPerSecond = 0,
+	FramesElapsedSinceSecond = 0,
+}
+
+-- Services
+local StatsService = GetService("Stats")
 
 -- Requires
 local AutoParryLogger = require("Features/AutoParryLogger")
@@ -2228,6 +2750,30 @@ function RenderEvent.CallbackFn(Step)
 		function()
 			-- Run AutoParryLogger update...
 			AutoParryLogger:RunUpdate()
+
+			-- Increment our frame counter...
+			RenderEvent.FramesElapsedSinceSecond = RenderEvent.FramesElapsedSinceSecond + 1
+
+			-- Check if a second has passed since our last frame timestamp...
+			if (Pascal:GetMethods().ExecutionClock() - (RenderEvent.SecondFrameTimestamp or 0.0)) >= 1 then
+				-- Reset our timestamp...
+				RenderEvent.SecondFrameTimestamp = Pascal:GetMethods().ExecutionClock()
+
+				-- Set current frames per second...
+				RenderEvent.ElapsedFramesPerSecond = RenderEvent.FramesElapsedSinceSecond
+
+				-- Reset our counter...
+				RenderEvent.FramesElapsedSinceSecond = 0
+			end
+
+			-- Update watermark...
+			Library:SetWatermark(
+				string.format(
+					"PascalCase (Deepwoken) | %i fps | %.2f ms",
+					RenderEvent.ElapsedFramesPerSecond,
+					StatsService.Network.ServerStatsItem["Data Ping"]:GetValue()
+				)
+			)
 		end,
 
 		-- Catch...
@@ -2257,7 +2803,7 @@ function Menu:Setup()
 	self.Window = Library:CreateWindow({
 		Title = "PascalCase | Deepwoken",
 		Center = true,
-		AutoShow = true,
+		AutoShow = not getgenv().PascalGhostMode,
 	})
 
 	-- Setup Tabs
@@ -2284,7 +2830,7 @@ local HttpService = GetService("HttpService")
 -- Configuration system for combat (this code is horrible, but i don't care enough right now. it works then it works.)
 function CombatTab:LoadLinoriaConfigFromName(Name)
 	if not isfile(Pascal:GetConfigurationPath() .. "/CombatConfigurations/" .. Name .. ".export") then
-		Library:Notify(string.format("Unable to load linoria-config %s, file does not exist!", Name), 2.0)
+		Library:Notify(string.format("Unable to load linoria-config %s, file does not exist! (make sure it is .export)", Name), 2.0)
 		return
 	end
 
@@ -2301,8 +2847,9 @@ function CombatTab:LoadLinoriaConfigFromName(Name)
 	end
 
 	for AnimationId, AnimationData in next, ConfigData do
-		Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList[AnimationId] = {
+		Pascal:GetConfig().AutoParryBuilder["Animation"].BuilderSettingsList[AnimationId] = {
 			Identifier = string.format("%s | %s", AnimationData.Name, AnimationId),
+			Type = "Animation",
 			NickName = AnimationData.Name,
 			AnimationId = AnimationId,
 			MinimumDistance = 0.0,
@@ -2319,6 +2866,8 @@ function CombatTab:LoadLinoriaConfigFromName(Name)
 		}
 	end
 
+	Pascal:GetConfig().AutoParryBuilder["Sound"].BuilderSettingsList = {}
+	Pascal:GetConfig().AutoParryBuilder["Part"].BuilderSettingsList = {}
 	Library:Notify(string.format("Successfully linoria-config config %s", Name), 2.0)
 end
 
@@ -2335,13 +2884,20 @@ function CombatTab:LoadConfigurationFromName(Name)
 	end
 
 	local ConfigData = HttpService:JSONDecode(JSONData)
-	if not ConfigData or not ConfigData.BuilderSettingsList or not ConfigData.BlacklistedIdList then
+	if
+		not ConfigData
+		or (not ConfigData.BuilderSettingsListAnimation and not ConfigData.BuilderSettingsListSound and not ConfigData.BuilderSettingsListPart)
+		or not ConfigData.BlacklistedIdList
+	then
 		Library:Notify(string.format("Unable to load config %s, data may be corrupted!", Name), 2.0)
 		return
 	end
 
-	Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList = ConfigData.BuilderSettingsList
-	Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds = ConfigData.BlacklistedIdList
+	Pascal:GetConfig().AutoParryBuilder["Animation"].BuilderSettingsList = ConfigData.BuilderSettingsListAnimation or {}
+	Pascal:GetConfig().AutoParryBuilder["Sound"].BuilderSettingsList = ConfigData.BuilderSettingsListSound or {}
+	Pascal:GetConfig().AutoParryBuilder["Part"].BuilderSettingsList = ConfigData.BuilderSettingsListPart or {}
+	Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers = ConfigData.BlacklistedIdList
+
 	Library:Notify(string.format("Successfully loaded config %s", Name), 2.0)
 end
 
@@ -2358,7 +2914,7 @@ function CombatTab:CreateConfigurationWithName(Name)
 
 	local ConfigData = {
 		BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList,
-		BlacklistedIdList = Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds,
+		BlacklistedIdList = Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers,
 	}
 
 	local JSONData = HttpService:JSONEncode(ConfigData)
@@ -2373,8 +2929,10 @@ function CombatTab:SaveConfigurationWithName(Name)
 	end
 
 	local ConfigData = {
-		BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList,
-		BlacklistedIdList = Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds,
+		BuilderSettingsListAnimation = Pascal:GetConfig().AutoParryBuilder["Animation"].BuilderSettingsList,
+		BuilderSettingsListSound = Pascal:GetConfig().AutoParryBuilder["Sound"].BuilderSettingsList,
+		BuilderSettingsListPart = Pascal:GetConfig().AutoParryBuilder["Part"].BuilderSettingsList,
+		BlacklistedIdList = Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers,
 	}
 
 	local JSONData = HttpService:JSONEncode(ConfigData)
@@ -2412,14 +2970,23 @@ function CombatTab:LoadDefaultConfig()
 	end
 
 	local ConfigData = HttpService:JSONDecode(JSONData)
-	if not ConfigData or not ConfigData.BuilderSettingsList or not ConfigData.BlacklistedIdList then
+	if
+		not ConfigData
+		or (not ConfigData.BuilderSettingsListAnimation and not ConfigData.BuilderSettingsListSound and not ConfigData.BuilderSettingsListPart)
+		or not ConfigData.BlacklistedIdList
+	then
 		Library:Notify(string.format("Unable to auto-load config, data may be corrupted!"), 2.0)
 		return
 	end
 
-	Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList = ConfigData.BuilderSettingsList
-	Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds = ConfigData.BlacklistedIdList
-	Library:Notify(string.format('Auto loaded combat config "%s"', ConfigToAutoload), 2.0)
+	Pascal:GetConfig().AutoParryBuilder["Animation"].BuilderSettingsList = ConfigData.BuilderSettingsListAnimation or {}
+	Pascal:GetConfig().AutoParryBuilder["Sound"].BuilderSettingsList = ConfigData.BuilderSettingsListSound or {}
+	Pascal:GetConfig().AutoParryBuilder["Part"].BuilderSettingsList = ConfigData.BuilderSettingsListPart or {}
+	Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers = ConfigData.BlacklistedIdList
+
+	if not getgenv().PascalGhostMode then
+		Library:Notify(string.format('Auto loaded combat config "%s"', ConfigToAutoload), 2.0)
+	end
 end
 
 function CombatTab:GetConfigurationList()
@@ -2473,9 +3040,9 @@ function CombatTab:GetConfigurationList()
 	return out
 end
 
-function CombatTab:AutoParryGroup()
-	local TabBox = self.Tab:AddLeftTabbox("AutoParry")
-	local SubTab1 = TabBox:AddTab("Builder")
+function CombatTab:AutoParryBuilderGroup()
+	local TabBox = self.Tab:AddLeftTabbox("AutoParryBuilder")
+	local SubTab1 = TabBox:AddTab("Animation")
 
 	SubTab1:AddInput("AnimationNickNameInput", {
 		Numeric = false,
@@ -2483,7 +3050,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Animation Nickname",
 
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.NickName = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.NickName = Value
 		end,
 	})
 
@@ -2493,7 +3060,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Animation ID",
 
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.AnimationId = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.AnimationId = Value
 		end,
 	})
 
@@ -2507,7 +3074,7 @@ function CombatTab:AutoParryGroup()
 		Suffix = "m",
 
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.MinimumDistance = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.MinimumDistance = Value
 		end,
 	})
 
@@ -2521,7 +3088,7 @@ function CombatTab:AutoParryGroup()
 		Suffix = "m",
 
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.MaximumDistance = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.MaximumDistance = Value
 		end,
 	})
 
@@ -2531,7 +3098,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Delay until attempt (ms)",
 
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.AttemptDelay = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.AttemptDelay = Value
 		end,
 	})
 
@@ -2539,7 +3106,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Roll instead of parry",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.ShouldRoll = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.ShouldRoll = Value
 		end,
 	})
 
@@ -2547,7 +3114,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Block until ending",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.ShouldBlock = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.ShouldBlock = Value
 		end,
 	})
 
@@ -2556,7 +3123,7 @@ function CombatTab:AutoParryGroup()
 		Tooltip = "Misleading, as this will simply run auto-parry at the end of an animation (including delay), if you want to only activate on end, run with no delay.",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.ActivateOnEnd = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.ActivateOnEnd = Value
 		end,
 	})
 
@@ -2564,7 +3131,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Delay until in range",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.DelayUntilInRange = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.DelayUntilInRange = Value
 		end,
 	})
 
@@ -2572,7 +3139,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Enable parry repeating",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.ParryRepeat = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.ParryRepeat = Value
 		end,
 	})
 
@@ -2581,7 +3148,7 @@ function CombatTab:AutoParryGroup()
 		Default = false, -- Default value (true / false)
 		Tooltip = "This will repeat the parry until the animation ends with the specified delay, and ignores the parry-repeat slider.",
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.ParryRepeatAnimationEnds = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.ParryRepeatAnimationEnds = Value
 		end,
 	})
 
@@ -2596,7 +3163,7 @@ function CombatTab:AutoParryGroup()
 		Suffix = "x",
 
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.ParryRepeatTimes = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.ParryRepeatTimes = Value
 		end,
 	})
 
@@ -2606,7 +3173,7 @@ function CombatTab:AutoParryGroup()
 		Text = "Delay between repeat parries (ms)",
 
 		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.ParryRepeatDelay = Value
+			Pascal:GetConfig().AutoParryBuilder.Animation.ParryRepeatDelay = Value
 		end,
 	})
 
@@ -2614,6 +3181,538 @@ function CombatTab:AutoParryGroup()
 		{ Toggles.EnableParryRepeat, true }, -- We can also pass `false` if we only want our features to show when the toggle is off!
 	})
 
+	local SubTab2 = TabBox:AddTab("Sound")
+
+	SubTab2:AddInput("SoundNickNameInput", {
+		Numeric = false,
+		Finished = false,
+		Text = "Sound Nickname",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.NickName = Value
+		end,
+	})
+
+	SubTab2:AddInput("SoundIdInput", {
+		Numeric = false,
+		Finished = false,
+		Text = "Sound ID",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.SoundId = Value
+		end,
+	})
+
+	SubTab2:AddSlider("SoundMinimumDistanceSlider", {
+		Text = "Minimum distance to activate",
+		Default = 5,
+		Min = 0,
+		Max = 100,
+		Rounding = 0,
+		Compact = false,
+		Suffix = "m",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.MinimumDistance = Value
+		end,
+	})
+
+	SubTab2:AddSlider("SoundMaximumDistanceSlider", {
+		Text = "Maximum distance to activate",
+		Default = 15,
+		Min = 0,
+		Max = 100,
+		Rounding = 0,
+		Compact = false,
+		Suffix = "m",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.MaximumDistance = Value
+		end,
+	})
+
+	SubTab2:AddInput("SoundAttemptDelayInput", {
+		Numeric = true,
+		Finished = false,
+		Text = "Delay until attempt (ms)",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.AttemptDelay = Value
+		end,
+	})
+
+	SubTab2:AddToggle("SoundRollInsteadOfParryToggle", {
+		Text = "Roll instead of parry",
+		Default = false, -- Default value (true / false)
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.ShouldRoll = Value
+		end,
+	})
+
+	SubTab2:AddToggle("SoundEnableParryRepeat", {
+		Text = "Enable parry repeating",
+		Default = false, -- Default value (true / false)
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.ParryRepeat = Value
+		end,
+	})
+
+	local Depbox2 = SubTab2:AddDependencyBox()
+	Depbox2:AddSlider("SoundParryRepeatSlider", {
+		Text = "Parry repeat times",
+		Default = 3,
+		Min = 1,
+		Max = 100,
+		Rounding = 0,
+		Compact = false,
+		Suffix = "x",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.ParryRepeatTimes = Value
+		end,
+	})
+
+	Depbox2:AddInput("SoundParryRepeatDelayInput", {
+		Numeric = true,
+		Finished = false,
+		Text = "Delay between repeat parries (ms)",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Sound.ParryRepeatDelay = Value
+		end,
+	})
+
+	Depbox2:SetupDependencies({
+		{ Toggles.SoundEnableParryRepeat, true }, -- We can also pass `false` if we only want our features to show when the toggle is off!
+	})
+
+	local SubTab3 = TabBox:AddTab("Part")
+	SubTab3:AddLabel(
+		"This auto-parry option is a work in progress, come back later to see if it's done...",
+		{ Wrap = true }
+	)
+end
+
+function CombatTab:BuilderSettingsGroup()
+	local TabBox = self.Tab:AddRightTabbox("BuilderSettings")
+
+	local SubTab1 = TabBox:AddTab("Settings")
+	SubTab1:AddDropdown("BuilderSettingsList", {
+		Values = CombatTab:UpdateBuilderSettingsList(),
+
+		Default = 1, -- number index of the value / string
+		Multi = false, -- true / false, allows multiple choices to be selected
+		AllowNull = true,
+
+		Text = "Builder Settings List",
+
+		Callback = function(Value)
+			local Type = Pascal:GetConfig().AutoParryBuilder.BuilderSettingType
+			Pascal:GetConfig().AutoParryBuilder[Type].CurrentActiveSettingString = Value
+
+			local BuilderSetting = Pascal:GetBuilderSettingFromIdentifier(Type, Value)
+			if not BuilderSetting then
+				return
+			end
+
+			if Type == "Animation" then
+				Options.AnimationNickNameInput:SetValue(BuilderSetting.NickName)
+				Options.AnimationIdInput:SetValue(BuilderSetting.AnimationId)
+				Options.MinimumDistanceSlider:SetValue(BuilderSetting.MinimumDistance)
+				Options.MaximumDistanceSlider:SetValue(BuilderSetting.MaximumDistance)
+				Options.AttemptDelayInput:SetValue(BuilderSetting.AttemptDelay)
+				Options.ParryRepeatSlider:SetValue(BuilderSetting.ParryRepeatTimes)
+				Options.ParryRepeatDelayInput:SetValue(BuilderSetting.ParryRepeatDelay)
+				Toggles.EnableParryRepeat:SetValue(BuilderSetting.ParryRepeat)
+				Toggles.RollInsteadOfParryToggle:SetValue(BuilderSetting.ShouldRoll)
+				Toggles.BlockInsteadOfParryToggle:SetValue(BuilderSetting.ShouldBlock)
+				Toggles.EnableParryRepeatAnimationEnds:SetValue(BuilderSetting.ParryRepeatAnimationEnds)
+				Toggles.DelayUntilInRange:SetValue(BuilderSetting.DelayUntilInRange)
+				Toggles.ActivateOnEnd:SetValue(BuilderSetting.ActivateOnEnd)
+			end
+
+			if Type == "Sound" then
+				Options.SoundNickNameInput:SetValue(BuilderSetting.NickName)
+				Options.SoundIdInput:SetValue(BuilderSetting.SoundId)
+				Options.SoundMinimumDistanceSlider:SetValue(BuilderSetting.MinimumDistance)
+				Options.SoundMaximumDistanceSlider:SetValue(BuilderSetting.MaximumDistance)
+				Options.SoundAttemptDelayInput:SetValue(BuilderSetting.AttemptDelay)
+				Options.SoundParryRepeatSlider:SetValue(BuilderSetting.ParryRepeatTimes)
+				Options.SoundParryRepeatDelayInput:SetValue(BuilderSetting.ParryRepeatDelay)
+				Toggles.SoundEnableParryRepeat:SetValue(BuilderSetting.ParryRepeat)
+				Toggles.SoundRollInsteadOfParryToggle:SetValue(BuilderSetting.ShouldRoll)
+			end
+		end,
+	})
+
+	SubTab1:AddDropdown("BuilderSettingsType", {
+		Values = { "Animation", "Sound" },
+
+		Default = 1, -- number index of the value / string
+		Multi = false, -- true / false, allows multiple choices to be selected
+		AllowNull = false,
+		Default = "Animation",
+		Text = "Builder Setting Type",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.BuilderSettingType = Value
+			CombatTab:UpdateBuilderSettingsList()
+			Options.BuilderSettingsList:SetValue(nil)
+		end,
+	})
+
+	SubTab1:AddButton("Register setting into list", function()
+		local Type = Pascal:GetConfig().AutoParryBuilder.BuilderSettingType
+		local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder[Type].BuilderSettingsList
+
+		-- Handle the builder settings list
+		if Type == "Animation" then
+			if BuilderSettingsList[Pascal:GetConfig().AutoParryBuilder[Type].AnimationId] then
+				Library:Notify(
+					string.format(
+						"%s(%s) is already in animation-list, cannot re-register it",
+						Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+						Pascal:GetConfig().AutoParryBuilder[Type].AnimationId
+					),
+					2.5
+				)
+
+				return
+			end
+
+			BuilderSettingsList[Pascal:GetConfig().AutoParryBuilder[Type].AnimationId] = {
+				Identifier = string.format(
+					"%s | %s",
+					Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+					Pascal:GetConfig().AutoParryBuilder[Type].AnimationId
+				),
+				Type = Pascal:GetConfig().AutoParryBuilder[Type].Type,
+				NickName = Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+				AnimationId = Pascal:GetConfig().AutoParryBuilder[Type].AnimationId,
+				MinimumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MinimumDistance,
+				MaximumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MaximumDistance,
+				AttemptDelay = Pascal:GetConfig().AutoParryBuilder[Type].AttemptDelay,
+				ShouldRoll = Pascal:GetConfig().AutoParryBuilder[Type].ShouldRoll,
+				ShouldBlock = Pascal:GetConfig().AutoParryBuilder[Type].ShouldBlock,
+				ParryRepeat = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeat,
+				ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatTimes,
+				ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatDelay,
+				ParryRepeatAnimationEnds = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatAnimationEnds,
+				DelayUntilInRange = Pascal:GetConfig().AutoParryBuilder[Type].DelayUntilInRange,
+				ActivateOnEnd = Pascal:GetConfig().AutoParryBuilder[Type].ActivateOnEnd,
+			}
+
+			Library:Notify(
+				string.format(
+					"Registered %s(%s) into list",
+					Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+					Pascal:GetConfig().AutoParryBuilder[Type].AnimationId
+				),
+				2.5
+			)
+		end
+
+		if Type == "Sound" then
+			if BuilderSettingsList[Pascal:GetConfig().AutoParryBuilder[Type].SoundId] then
+				Library:Notify(
+					string.format(
+						"%s(%s) is already in sound-list, cannot re-register it",
+						Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+						Pascal:GetConfig().AutoParryBuilder[Type].SoundId
+					),
+					2.5
+				)
+
+				return
+			end
+
+			BuilderSettingsList[Pascal:GetConfig().AutoParryBuilder[Type].SoundId] = {
+				Identifier = string.format(
+					"%s | %s",
+					Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+					Pascal:GetConfig().AutoParryBuilder[Type].SoundId
+				),
+				Type = Pascal:GetConfig().AutoParryBuilder[Type].Type,
+				NickName = Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+				SoundId = Pascal:GetConfig().AutoParryBuilder[Type].SoundId,
+				MinimumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MinimumDistance,
+				MaximumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MaximumDistance,
+				AttemptDelay = Pascal:GetConfig().AutoParryBuilder[Type].AttemptDelay,
+				ShouldRoll = Pascal:GetConfig().AutoParryBuilder[Type].ShouldRoll,
+				ParryRepeat = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeat,
+				ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatTimes,
+				ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatDelay,
+			}
+
+			Library:Notify(
+				string.format(
+					"Registered %s(%s) into list",
+					Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+					Pascal:GetConfig().AutoParryBuilder[Type].SoundId
+				),
+				2.5
+			)
+		end
+
+		CombatTab:UpdateBuilderSettingsList()
+		Options.BuilderSettingsList:SetValue(nil)
+	end)
+
+	SubTab1:AddButton("Update setting from list", function()
+		local Type = Pascal:GetConfig().AutoParryBuilder.BuilderSettingType
+		local BuilderSetting = Pascal:GetBuilderSettingFromIdentifier(
+			Type,
+			Pascal:GetConfig().AutoParryBuilder[Type].CurrentActiveSettingString
+		)
+
+		if not BuilderSetting then
+			return
+		end
+
+		if Type == "Animation" then
+			Library:Notify(
+				string.format("Updated %s(%s) from animation-list", BuilderSetting.NickName, BuilderSetting.AnimationId),
+				2.5
+			)
+
+			-- Handle the builder settings list
+			BuilderSetting.Identifier = string.format(
+				"%s | %s",
+				Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+				Pascal:GetConfig().AutoParryBuilder[Type].AnimationId
+			)
+
+			BuilderSetting.NickName = Pascal:GetConfig().AutoParryBuilder[Type].NickName
+			BuilderSetting.MinimumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MinimumDistance
+			BuilderSetting.MaximumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MaximumDistance
+			BuilderSetting.AttemptDelay = Pascal:GetConfig().AutoParryBuilder[Type].AttemptDelay
+			BuilderSetting.ShouldRoll = Pascal:GetConfig().AutoParryBuilder[Type].ShouldRoll
+			BuilderSetting.ShouldBlock = Pascal:GetConfig().AutoParryBuilder[Type].ShouldBlock
+			BuilderSetting.ParryRepeat = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeat
+			BuilderSetting.ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatTimes
+			BuilderSetting.ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatDelay
+			BuilderSetting.ParryRepeatAnimationEnds = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatAnimationEnds
+			BuilderSetting.DelayUntilInRange = Pascal:GetConfig().AutoParryBuilder[Type].DelayUntilInRange
+			BuilderSetting.ActivateOnEnd = Pascal:GetConfig().AutoParryBuilder[Type].ActivateOnEnd
+		end
+
+		if Type == "Sound" then
+			Library:Notify(
+				string.format("Updated %s(%s) from sound-list", BuilderSetting.NickName, BuilderSetting.SoundId),
+				2.5
+			)
+
+			-- Handle the builder settings list
+			BuilderSetting.Identifier = string.format(
+				"%s | %s",
+				Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+				Pascal:GetConfig().AutoParryBuilder[Type].SoundId
+			)
+
+			BuilderSetting.NickName = Pascal:GetConfig().AutoParryBuilder[Type].SoundId
+			BuilderSetting.MinimumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MinimumDistance
+			BuilderSetting.MaximumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MaximumDistance
+			BuilderSetting.AttemptDelay = Pascal:GetConfig().AutoParryBuilder[Type].AttemptDelay
+			BuilderSetting.ShouldRoll = Pascal:GetConfig().AutoParryBuilder[Type].ShouldRoll
+			BuilderSetting.ParryRepeat = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeat
+			BuilderSetting.ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatTimes
+			BuilderSetting.ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatDelay
+		end
+
+		CombatTab:UpdateBuilderSettingsList()
+		Options.BuilderSettingsList:SetValue(nil)
+	end)
+
+	SubTab1:AddButton("Delete setting from list", function()
+		local Type = Pascal:GetConfig().AutoParryBuilder.BuilderSettingType
+		local BuilderSetting = Pascal:GetBuilderSettingFromIdentifier(
+			Type,
+			Pascal:GetConfig().AutoParryBuilder[Type].CurrentActiveSettingString
+		)
+
+		if not BuilderSetting then
+			return
+		end
+
+		if Type == "Animation" then
+			Library:Notify(
+				string.format("Deleted %s(%s) from list", BuilderSetting.NickName, BuilderSetting.AnimationId),
+				2.5
+			)
+
+			local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder[Type].BuilderSettingsList
+			BuilderSettingsList[BuilderSetting.AnimationId] = nil
+		end
+
+		if Type == "Sound" then
+			Library:Notify(
+				string.format("Deleted %s(%s) from list", BuilderSetting.NickName, BuilderSetting.SoundId),
+				2.5
+			)
+
+			local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder[Type].BuilderSettingsList
+			BuilderSettingsList[BuilderSetting.SoundId] = nil
+		end
+
+		CombatTab:UpdateBuilderSettingsList()
+		Options.BuilderSettingsList:SetValue(nil)
+	end)
+
+	SubTab1:AddDropdown("BlacklistedIdentifiersList", {
+		Values = CombatTab:UpdateBlacklistedIdentifiersList(),
+
+		Default = 1, -- number index of the value / string
+		Multi = false, -- true / false, allows multiple choices to be selected
+		AllowNull = true,
+
+		Text = "Blacklisted Identifiers",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryLogging.CurrentActiveIdentifiersSetting = Value
+		end,
+	})
+
+	SubTab1:AddInput("IdentifiersInputBlacklist", {
+		Numeric = false,
+		Finished = false,
+		Text = "Hide ID",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryLogging.CurrentIdentifierBlacklist = Value
+		end,
+	})
+
+	SubTab1:AddButton("Blacklist ID from logger", function()
+		local ActiveAnimationIdValue =
+			Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers[Pascal:GetConfig().AutoParryLogging.CurrentIdentifierBlacklist]
+
+		if ActiveAnimationIdValue == true then
+			Library:Notify(
+				string.format(
+					"%s is already blacklisted from logging",
+					Pascal:GetConfig().AutoParryLogging.CurrentIdentifierBlacklist
+				),
+				2.5
+			)
+
+			return
+		end
+
+		Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers[Pascal:GetConfig().AutoParryLogging.CurrentIdentifierBlacklist] =
+			true
+
+		Library:Notify(
+			string.format("Blacklisted %s from logging", Pascal:GetConfig().AutoParryLogging.CurrentIdentifierBlacklist),
+			2.5
+		)
+
+		CombatTab:UpdateBlacklistedIdentifiersList()
+	end)
+
+	SubTab1:AddButton("Re-whitelist selected ID", function()
+		local ActiveAnimationIdValue =
+			Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers[Pascal:GetConfig().AutoParryLogging.CurrentActiveIdentifiersSetting]
+
+		if ActiveAnimationIdValue == nil then
+			Library:Notify(string.format("Active ID does not exist in the list (error)"), 2.5)
+			return
+		end
+
+		if ActiveAnimationIdValue == false then
+			Library:Notify(
+				string.format(
+					"%s is already whitelisted from logging",
+					Pascal:GetConfig().AutoParryLogging.CurrentActiveIdentifiersSetting
+				),
+				2.5
+			)
+
+			return
+		end
+
+		Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers[Pascal:GetConfig().AutoParryLogging.CurrentActiveIdentifiersSetting] =
+			false
+
+		Library:Notify(
+			string.format(
+				"Re-whitelisted %s from logging",
+				Pascal:GetConfig().AutoParryLogging.CurrentActiveIdentifiersSetting
+			),
+			2.5
+		)
+
+		CombatTab:UpdateBlacklistedIdentifiersList()
+		Options.BlacklistedIdentifiersList:SetValue(nil)
+	end)
+
+	local SubTab2 = TabBox:AddTab("Transfering")
+
+	SubTab2:AddDropdown("ConfigurationList", {
+		Values = CombatTab:GetConfigurationList(),
+
+		Default = 1, -- number index of the value / string
+		Multi = false, -- true / false, allows multiple choices to be selected
+		AllowNull = true,
+
+		Text = "Configuration list",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString = Value
+		end,
+	})
+
+	SubTab2:AddInput("ConfigNameInput", {
+		Numeric = false,
+		Finished = false,
+		Text = "Configuration name",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationNameString = Value
+		end,
+	})
+
+	SubTab2
+		:AddButton("Create config", function()
+			CombatTab:CreateConfigurationWithName(Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationNameString)
+			Options.ConfigurationList.Values = CombatTab:GetConfigurationList()
+			Options.ConfigurationList:SetValues()
+			Options.ConfigurationList:SetValue(nil)
+		end)
+		:AddButton("Load config", function()
+			if
+				isfile(
+					Pascal:GetConfigurationPath()
+						.. "/CombatConfigurations/"
+						.. Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString
+						.. ".json"
+				)
+			then
+				CombatTab:LoadConfigurationFromName(Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString)
+			else
+				CombatTab:LoadLinoriaConfigFromName(Name)
+			end
+
+			CombatTab:UpdateBuilderSettingsList()
+			CombatTab:UpdateBlacklistedIdentifiersList()
+		end)
+
+	SubTab2:AddButton("Save config", function()
+		CombatTab:SaveConfigurationWithName(Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString)
+	end)
+
+	SubTab2:AddButton("Set as default config", function()
+		CombatTab:SetDefaultConfig(Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString)
+	end)
+
+	SubTab2:AddButton("Refresh configuration list", function()
+		Options.ConfigurationList.Values = CombatTab:GetConfigurationList()
+		Options.ConfigurationList:SetValues()
+		Options.ConfigurationList:SetValue(nil)
+	end)
+end
+
+function CombatTab:AutoParryGroup()
+	local TabBox = self.Tab:AddLeftTabbox("AutoParry")
 	local SubTab2 = TabBox:AddTab("Logger")
 
 	SubTab2:AddToggle("EnableAutoParryLogging", {
@@ -2642,7 +3741,7 @@ function CombatTab:AutoParryGroup()
 	})
 
 	SubTab2:AddDropdown("LoggerTypeDropDown", {
-		Values = { "Animations" },
+		Values = { "Animation", "Sound" },
 		Default = 1,
 		Multi = false,
 		Text = "Logger Type",
@@ -2681,6 +3780,20 @@ function CombatTab:AutoParryGroup()
 		end,
 	})
 
+	Depbox2:AddSlider("InfoLoggerMaximumSize", {
+		Text = "Info-logger maximum size",
+		Default = 8,
+		Min = 0,
+		Max = 20,
+		Rounding = 0,
+		Compact = false,
+		Suffix = "el",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryLogging.MaximumSize = Value
+		end,
+	})
+
 	Depbox2:SetupDependencies({
 		{ Toggles.EnableAutoParryLogging, true }, -- We can also pass `false` if we only want our features to show when the toggle is off!
 	})
@@ -2691,11 +3804,30 @@ function CombatTab:AutoParryGroup()
 		Text = "Enable auto-parry",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
-			if Value == false then
+			if Value == false and Pascal:GetConfig().AutoParry.ShowAutoParryNotifications then
 				Library:Notify("You have enabled the SmartParry technology!", 3.0)
 			end
 
-			Pascal:GetConfig().AutoParry.Enabled = Value
+			if not Pascal:GetConfig().AutoParry.BindEnabled then
+				Pascal:GetConfig().AutoParry.Enabled = Value
+			end
+		end,
+	})
+
+	SubTab3:AddToggle("EnableAutoParryBindToggle", {
+		Text = "Enable auto-parry bind",
+		Default = false, -- Default value (true / false)
+		Callback = function(Value)
+			Options.AutoParryBind.NoUI = not Value
+			Pascal:GetConfig().AutoParry.BindEnabled = Value
+		end,
+	}):AddKeyPicker("AutoParryBind", {
+		Default = "X",
+		NoUI = not Pascal:GetConfig().AutoParry.BindEnabled,
+		Text = "Auto-parry bind",
+		Modes = { "Toggle", "Hold" },
+		Callback = function(State)
+			Pascal:GetConfig().AutoParry.Enabled = State
 		end,
 	})
 
@@ -2707,6 +3839,14 @@ function CombatTab:AutoParryGroup()
 		Tooltip = "For now, the only method here is KeyPress.",
 		Callback = function(Value)
 			Pascal:GetConfig().AutoParry.InputMethod = Value
+		end,
+	})
+
+	SubTab3:AddToggle("ShouldNotifyUser", {
+		Text = "Show auto-parry notifications",
+		Default = true, -- Default value (true / false)
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParry.ShowAutoParryNotifications = Value
 		end,
 	})
 
@@ -2875,338 +4015,45 @@ function CombatTab:AutoParryGroup()
 	})
 end
 
-function CombatTab:BuilderSettingsGroup()
-	local TabBox = self.Tab:AddRightTabbox("BuilderSettings")
-
-	local SubTab1 = TabBox:AddTab("Settings")
-	SubTab1:AddDropdown("BuilderSettingsList", {
-		Values = CombatTab:UpdateBuilderSettingsList(),
-
-		Default = 1, -- number index of the value / string
-		Multi = false, -- true / false, allows multiple choices to be selected
-		AllowNull = true,
-
-		Text = "Builder settings list",
-
-		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.CurrentActiveSettingString = Value
-
-			local BuilderSetting = Pascal:GetBuilderSettingFromIdentifier(Value)
-			if not BuilderSetting then
-				return
-			end
-
-			Options.AnimationNickNameInput:SetValue(BuilderSetting.NickName)
-			Options.AnimationIdInput:SetValue(BuilderSetting.AnimationId)
-			Options.MinimumDistanceSlider:SetValue(BuilderSetting.MinimumDistance)
-			Options.MaximumDistanceSlider:SetValue(BuilderSetting.MaximumDistance)
-			Options.AttemptDelayInput:SetValue(BuilderSetting.AttemptDelay)
-			Options.ParryRepeatSlider:SetValue(BuilderSetting.ParryRepeatTimes)
-			Options.ParryRepeatDelayInput:SetValue(BuilderSetting.ParryRepeatDelay)
-			Toggles.EnableParryRepeat:SetValue(BuilderSetting.ParryRepeat)
-			Toggles.RollInsteadOfParryToggle:SetValue(BuilderSetting.ShouldRoll)
-			Toggles.BlockInsteadOfParryToggle:SetValue(BuilderSetting.ShouldBlock)
-			Toggles.EnableParryRepeatAnimationEnds:SetValue(BuilderSetting.ParryRepeatAnimationEnds)
-			Toggles.DelayUntilInRange:SetValue(BuilderSetting.DelayUntilInRange)
-			Toggles.ActivateOnEnd:SetValue(BuilderSetting.ActivateOnEnd)
-		end,
-	})
-
-	SubTab1:AddButton("Register setting into list", function()
-		local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList
-
-		if BuilderSettingsList[Pascal:GetConfig().AutoParryBuilder.AnimationId] then
-			Library:Notify(
-				string.format(
-					"%s(%s) is already in list, cannot re-register it",
-					Pascal:GetConfig().AutoParryBuilder.NickName,
-					Pascal:GetConfig().AutoParryBuilder.AnimationId
-				),
-				2.5
-			)
-
-			return
-		end
-
-		-- Handle the builder settings list
-		BuilderSettingsList[Pascal:GetConfig().AutoParryBuilder.AnimationId] = {
-			Identifier = string.format(
-				"%s | %s",
-				Pascal:GetConfig().AutoParryBuilder.NickName,
-				Pascal:GetConfig().AutoParryBuilder.AnimationId
-			),
-
-			NickName = Pascal:GetConfig().AutoParryBuilder.NickName,
-			AnimationId = Pascal:GetConfig().AutoParryBuilder.AnimationId,
-			MinimumDistance = Pascal:GetConfig().AutoParryBuilder.MinimumDistance,
-			MaximumDistance = Pascal:GetConfig().AutoParryBuilder.MaximumDistance,
-			AttemptDelay = Pascal:GetConfig().AutoParryBuilder.AttemptDelay,
-			ShouldRoll = Pascal:GetConfig().AutoParryBuilder.ShouldRoll,
-			ShouldBlock = Pascal:GetConfig().AutoParryBuilder.ShouldBlock,
-			ParryRepeat = Pascal:GetConfig().AutoParryBuilder.ParryRepeat,
-			ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder.ParryRepeatTimes,
-			ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder.ParryRepeatDelay,
-			ParryRepeatAnimationEnds = Pascal:GetConfig().AutoParryBuilder.ParryRepeatAnimationEnds,
-			DelayUntilInRange = Pascal:GetConfig().AutoParryBuilder.DelayUntilInRange,
-			ActivateOnEnd = Pascal:GetConfig().AutoParryBuilder.ActivateOnEnd,
-		}
-
-		Library:Notify(
-			string.format(
-				"Registered %s(%s) into list",
-				Pascal:GetConfig().AutoParryBuilder.NickName,
-				Pascal:GetConfig().AutoParryBuilder.AnimationId
-			),
-			2.5
-		)
-
-		CombatTab:UpdateBuilderSettingsList()
-	end)
-
-	SubTab1:AddButton("Update setting from list", function()
-		local BuilderSetting =
-			Pascal:GetBuilderSettingFromIdentifier(Pascal:GetConfig().AutoParryBuilder.CurrentActiveSettingString)
-
-		if not BuilderSetting then
-			return
-		end
-
-		Library:Notify(
-			string.format("Updated %s(%s) from list", BuilderSetting.NickName, BuilderSetting.AnimationId),
-			2.5
-		)
-
-		-- Handle the builder settings list
-		BuilderSetting.Identifier = string.format(
-			"%s | %s",
-			Pascal:GetConfig().AutoParryBuilder.NickName,
-			Pascal:GetConfig().AutoParryBuilder.AnimationId
-		)
-
-		BuilderSetting.NickName = Pascal:GetConfig().AutoParryBuilder.NickName
-		BuilderSetting.MinimumDistance = Pascal:GetConfig().AutoParryBuilder.MinimumDistance
-		BuilderSetting.MaximumDistance = Pascal:GetConfig().AutoParryBuilder.MaximumDistance
-		BuilderSetting.AttemptDelay = Pascal:GetConfig().AutoParryBuilder.AttemptDelay
-		BuilderSetting.ShouldRoll = Pascal:GetConfig().AutoParryBuilder.ShouldRoll
-		BuilderSetting.ShouldBlock = Pascal:GetConfig().AutoParryBuilder.ShouldBlock
-		BuilderSetting.ParryRepeat = Pascal:GetConfig().AutoParryBuilder.ParryRepeat
-		BuilderSetting.ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder.ParryRepeatTimes
-		BuilderSetting.ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder.ParryRepeatDelay
-		BuilderSetting.ParryRepeatAnimationEnds = Pascal:GetConfig().AutoParryBuilder.ParryRepeatAnimationEnds
-		BuilderSetting.DelayUntilInRange = Pascal:GetConfig().AutoParryBuilder.DelayUntilInRange
-		BuilderSetting.ActivateOnEnd = Pascal:GetConfig().AutoParryBuilder.ActivateOnEnd
-
-		CombatTab:UpdateBuilderSettingsList()
-		Options.BuilderSettingsList:SetValue(nil)
-	end)
-
-	SubTab1:AddButton("Delete setting from list", function()
-		local BuilderSetting =
-			Pascal:GetBuilderSettingFromIdentifier(Pascal:GetConfig().AutoParryBuilder.CurrentActiveSettingString)
-
-		if not BuilderSetting then
-			return
-		end
-
-		Library:Notify(
-			string.format("Deleted %s(%s) from list", BuilderSetting.NickName, BuilderSetting.AnimationId),
-			2.5
-		)
-
-		local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList
-		BuilderSettingsList[BuilderSetting.AnimationId] = nil
-
-		CombatTab:UpdateBuilderSettingsList()
-		Options.BuilderSettingsList:SetValue(nil)
-	end)
-
-	SubTab1:AddDropdown("BlacklistedAnimationIdsList", {
-		Values = CombatTab:UpdateBlacklistedAnimationIdsList(),
-
-		Default = 1, -- number index of the value / string
-		Multi = false, -- true / false, allows multiple choices to be selected
-		AllowNull = true,
-
-		Text = "Blacklisted Animation IDs",
-
-		Callback = function(Value)
-			Pascal:GetConfig().AutoParryLogging.CurrentActiveAnimationIdSetting = Value
-		end,
-	})
-
-	SubTab1:AddInput("AnimationIdInputBlacklist", {
-		Numeric = false,
-		Finished = false,
-		Text = "Hide Animation ID",
-
-		Callback = function(Value)
-			Pascal:GetConfig().AutoParryLogging.CurrentAnimationIdBlacklist = Value
-		end,
-	})
-
-	SubTab1:AddButton("Blacklist ID from logger", function()
-		local ActiveAnimationIdValue =
-			Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds[Pascal:GetConfig().AutoParryLogging.CurrentAnimationIdBlacklist]
-
-		if ActiveAnimationIdValue == true then
-			Library:Notify(
-				string.format(
-					"%s is already blacklisted from logging",
-					Pascal:GetConfig().AutoParryLogging.CurrentAnimationIdBlacklist
-				),
-				2.5
-			)
-
-			return
-		end
-
-		Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds[Pascal:GetConfig().AutoParryLogging.CurrentAnimationIdBlacklist] =
-			true
-
-		Library:Notify(
-			string.format(
-				"Blacklisted %s from logging",
-				Pascal:GetConfig().AutoParryLogging.CurrentAnimationIdBlacklist
-			),
-			2.5
-		)
-
-		CombatTab:UpdateBlacklistedAnimationIdsList()
-	end)
-
-	SubTab1:AddButton("Re-whitelist selected ID", function()
-		local ActiveAnimationIdValue =
-			Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds[Pascal:GetConfig().AutoParryLogging.CurrentActiveAnimationIdSetting]
-
-		if ActiveAnimationIdValue == nil then
-			Library:Notify(string.format("Active ID does not exist in the list (error)"), 2.5)
-			return
-		end
-
-		if ActiveAnimationIdValue == false then
-			Library:Notify(
-				string.format(
-					"%s is already whitelisted from logging",
-					Pascal:GetConfig().AutoParryLogging.CurrentActiveAnimationIdSetting
-				),
-				2.5
-			)
-
-			return
-		end
-
-		Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds[Pascal:GetConfig().AutoParryLogging.CurrentActiveAnimationIdSetting] =
-			false
-
-		Library:Notify(
-			string.format(
-				"Re-whitelisted %s from logging",
-				Pascal:GetConfig().AutoParryLogging.CurrentActiveAnimationIdSetting
-			),
-			2.5
-		)
-
-		CombatTab:UpdateBlacklistedAnimationIdsList()
-		Options.BlacklistedAnimationIdsList:SetValue(nil)
-	end)
-
-	local SubTab2 = TabBox:AddTab("Transfering")
-
-	SubTab2:AddDropdown("ConfigurationList", {
-		Values = CombatTab:GetConfigurationList(),
-
-		Default = 1, -- number index of the value / string
-		Multi = false, -- true / false, allows multiple choices to be selected
-		AllowNull = true,
-
-		Text = "Configuration list",
-
-		Callback = function(Value)
-			Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString = Value
-		end,
-	})
-
-	SubTab2:AddInput("ConfigNameInput", {
-		Numeric = false,
-		Finished = false,
-		Text = "Configuration name",
-
-		Callback = function(Value)
-			Pascal:GetConfig().AutoParryLogging.ActiveConfigurationNameString = Value
-		end,
-	})
-
-	SubTab2
-		:AddButton("Create config", function()
-			CombatTab:CreateConfigurationWithName(Pascal:GetConfig().AutoParryLogging.ActiveConfigurationNameString)
-			Options.ConfigurationList.Values = CombatTab:GetConfigurationList()
-			Options.ConfigurationList:SetValues()
-			Options.ConfigurationList:SetValue(nil)
-		end)
-		:AddButton("Load config", function()
-			if
-				isfile(
-					Pascal:GetConfigurationPath()
-						.. "/CombatConfigurations/"
-						.. Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString
-						.. ".export"
-				)
-			then
-				CombatTab:LoadLinoriaConfigFromName(Name)
-			else
-				CombatTab:LoadConfigurationFromName(Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString)
-			end
-
-			CombatTab:UpdateBuilderSettingsList()
-			CombatTab:UpdateBlacklistedAnimationIdsList()
-		end)
-
-	SubTab2:AddButton("Save config", function()
-		CombatTab:SaveConfigurationWithName(Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString)
-	end)
-
-	SubTab2:AddButton("Set as default config", function()
-		CombatTab:SetDefaultConfig(Pascal:GetConfig().AutoParryBuilder.ActiveConfigurationString)
-	end)
-
-	SubTab2:AddButton("Refresh configuration list", function()
-		Options.ConfigurationList.Values = CombatTab:GetConfigurationList()
-		Options.ConfigurationList:SetValues()
-		Options.ConfigurationList:SetValue(nil)
-	end)
-end
-
 function CombatTab:CreateElements()
+	self:AutoParryBuilderGroup()
 	self:AutoParryGroup()
 	self:BuilderSettingsGroup()
 end
 
-function CombatTab:UpdateBlacklistedAnimationIdsList()
-	local VisibleBlacklistedAnimationIds = {}
+function CombatTab:UpdateBlacklistedIdentifiersList()
+	local VisibleBlacklistedIdentifiers = {}
 
-	for AnimationId, CurrentValue in next, Pascal:GetConfig().AutoParryLogging.BlacklistedAnimationIds do
+	for Identifier, CurrentValue in next, Pascal:GetConfig().AutoParryLogging.BlacklistedIdentifiers do
 		-- Don't add this to the current list if it is whitelisted...
 		if CurrentValue == false then
 			continue
 		end
 
-		table.insert(VisibleBlacklistedAnimationIds, AnimationId)
+		table.insert(VisibleBlacklistedIdentifiers, Identifier)
 	end
 
-	if Options.BlacklistedAnimationIdsList then
-		Options.BlacklistedAnimationIdsList.Values = VisibleBlacklistedAnimationIds
-		Options.BlacklistedAnimationIdsList:SetValues()
+	if Options.BlacklistedIdentifiersList then
+		Options.BlacklistedIdentifiersList.Values = VisibleBlacklistedIdentifiers
+		Options.BlacklistedIdentifiersList:SetValues()
 	end
 
-	return VisibleBlacklistedAnimationIds
+	return VisibleBlacklistedIdentifiers
 end
 
 function CombatTab:UpdateBuilderSettingsList()
 	local VisibleBuilderSettingsList = {}
 
-	for _, BuilderSettings in next, Pascal:GetConfig().AutoParryBuilder.BuilderSettingsList do
+	for _, BuilderSettings in
+		next,
+		Pascal:GetConfig().AutoParryBuilder[Pascal:GetConfig().AutoParryBuilder.BuilderSettingType].BuilderSettingsList
+	do
 		table.insert(VisibleBuilderSettingsList, BuilderSettings.Identifier)
 	end
+
+	table.sort(VisibleBuilderSettingsList, function(a,b)
+		return a:lower() < b:lower()
+	end)
 
 	if Options.BuilderSettingsList then
 		Options.BuilderSettingsList.Values = VisibleBuilderSettingsList
@@ -3241,6 +4088,7 @@ local SaveManager = require("UI/Library/SaveManager")
 
 function SettingsTab:SetupSaveManager(Library)
 	SaveManager:SetLibrary(Library)
+	SaveManager:SetWindow(self.Window)
 	SaveManager:IgnoreThemeSettings()
 	SaveManager:SetFolder(Pascal:GetConfigurationPath())
 	SaveManager:BuildConfigSection(self.Tab)
@@ -3261,6 +4109,14 @@ function SettingsTab:CreateElements(Library)
 		Default = false,
 		Callback = function(Value)
 			Library:SetKeybindVisibility(Value)
+		end,
+	})
+
+	MenuGroup:AddToggle("ShowWaterMarkToggle", {
+		Text = "Show watermark",
+		Default = false,
+		Callback = function(Value)
+			Library:SetWatermarkVisibility(Value)
 		end,
 	})
 
@@ -3295,6 +4151,7 @@ __bundle_register("UI/Library/SaveManager", function(require, _LOADED, __bundle_
 local httpService = GetService("HttpService")
 
 local SaveManager = {}
+local CurrentWindow = nil
 do
 	SaveManager.Folder = "LinoriaLibSettings"
 	SaveManager.Ignore = {}
@@ -3304,6 +4161,54 @@ do
 				return { type = "Toggle", idx = idx, value = object.Value }
 			end,
 			Load = function(idx, data)
+				if Toggles[idx] and idx == "ShowKeyBindsToggle" and getgenv().PascalGhostMode then
+					task.spawn(function()
+						repeat
+							task.wait()
+						until CurrentWindow.Holder.Visible
+
+						Library:SetKeybindVisibility(data.value)
+
+						if Toggles[idx] then
+							Toggles[idx]:SetValue(data.value)
+						end
+					end)
+
+					return
+				end
+
+				if Toggles[idx] and idx == "ShowWaterMarkToggle" and getgenv().PascalGhostMode then
+					task.spawn(function()
+						repeat
+							task.wait()
+						until CurrentWindow.Holder.Visible
+
+						Library:SetWatermarkVisibility(data.value)
+
+						if Toggles[idx] then
+							Toggles[idx]:SetValue(data.value)
+						end
+					end)
+
+					return
+				end
+
+				if Toggles[idx] and idx == "EnableAutoParryLogging" and getgenv().PascalGhostMode then
+					task.spawn(function()
+						repeat
+							task.wait()
+						until CurrentWindow.Holder.Visible
+
+						Library:SetInfoLoggerVisibility(data.value)
+
+						if Toggles[idx] then
+							Toggles[idx]:SetValue(data.value)
+						end
+					end)
+
+					return
+				end
+
 				if Toggles[idx] then
 					Toggles[idx]:SetValue(data.value)
 				end
@@ -3373,6 +4278,10 @@ do
 		end
 	end
 
+	function SaveManager:SetWindow(window)
+		CurrentWindow = window
+	end
+
 	function SaveManager:SetFolder(folder)
 		self.Folder = folder
 		self:BuildFolderTree()
@@ -3385,8 +4294,27 @@ do
 
 		local fullPath = self.Folder .. "/Settings/" .. name .. ".json"
 
+		local function udimToTable(udim)
+			return {
+				["S"] = udim.Scale,
+				["O"] = udim.Offset,
+			}
+		end
+
+		local function udim2ToTable(udim2)
+			return {
+				["X"] = udimToTable(udim2.X),
+				["Y"] = udimToTable(udim2.Y),
+				["W"] = udimToTable(udim2.Width),
+				["H"] = udimToTable(udim2.Height),
+			}
+		end
+
 		local data = {
 			objects = {},
+			infoLoggerPosition = udim2ToTable(Library.InfoLoggerFrame.Position),
+			keybindPosition = udim2ToTable(Library.KeybindFrame.Position),
+			watermarkPosition = udim2ToTable(Library.Watermark.Position),
 		}
 
 		for idx, toggle in next, Toggles do
@@ -3436,6 +4364,25 @@ do
 			if self.Parser[option.type] then
 				self.Parser[option.type].Load(option.idx, option)
 			end
+		end
+
+		local function tableToUdim(table)
+			return UDim.new(table["S"], table["O"])
+		end
+
+		local function tableToUdim2(table)
+			return UDim2.new(
+				tableToUdim(table["X"]),
+				tableToUdim(table["Y"]),
+				tableToUdim(table["W"]),
+				tableToUdim(table["H"])
+			)
+		end
+
+		if decoded.keybindPosition and decoded.infoLoggerPosition and decoded.watermarkPosition then
+			Library.KeybindFrame.Position = tableToUdim2(decoded.keybindPosition)
+			Library.InfoLoggerFrame.Position = tableToUdim2(decoded.infoLoggerPosition)
+			Library.Watermark.Position = tableToUdim2(decoded.watermarkPosition)
 		end
 
 		return true
@@ -3512,7 +4459,9 @@ do
 				return self.Library:Notify("Failed to load autoload config: " .. err)
 			end
 
-			self.Library:Notify(string.format("Auto loaded config %q", name))
+			if not getgenv().PascalGhostMode then
+				self.Library:Notify(string.format("Auto loaded config %q", name))
+			end
 		end
 	end
 
@@ -4023,13 +4972,7 @@ function Library:SafeCallback(f, ...)
 	local success, event = pcall(f, ...)
 
 	if not success then
-		local _, i = event:find(":%d+: ")
-
-		if not i then
-			return Library:Notify(event)
-		end
-
-		return Library:Notify(event:sub(i + 1), 3)
+		return Library:Notify(event)
 	end
 end
 
@@ -4866,6 +5809,7 @@ do
 
 		local KeyPicker = {
 			Value = Info.Default,
+			NoUI = Info.NoUI or false,
 			Toggled = false,
 			Mode = Info.Mode or "Toggle", -- Always, Toggle, Hold
 			Type = "KeyPicker",
@@ -5008,16 +5952,14 @@ do
 		end
 
 		function KeyPicker:Update()
-			if Info.NoUI then
-				return
-			end
-
 			local State = KeyPicker:GetState()
-
 			ContainerLabel.Text = string.format("[%s] %s (%s)", KeyPicker.Value, Info.Text, KeyPicker.Mode)
-
 			ContainerLabel.Visible = true
 			ContainerLabel.TextColor3 = State and Library.AccentColor or Library.FontColor
+
+			if KeyPicker.NoUI then
+				ContainerLabel.Visible = false
+			end
 
 			Library.RegistryMap[ContainerLabel].Properties.TextColor3 = State and "AccentColor" or "FontColor"
 
@@ -5144,7 +6086,7 @@ do
 		end)
 
 		Library:GiveSignal(InputService.InputBegan:Connect(function(Input, ProcessedByGame)
-			if not Picking and not Library.Toggle then
+			if not Picking then
 				if KeyPicker.Mode == "Toggle" then
 					local Key = KeyPicker.Value
 
@@ -6671,7 +7613,7 @@ do
 		AnchorPoint = Vector2.new(0, 0.5),
 		BorderColor3 = Color3.new(0, 0, 0),
 		Position = UDim2.new(0, 10, 0.5, 0),
-		Size = UDim2.new(0, 210, 0, 20),
+		Size = UDim2.new(0, 210, 0, 24),
 		Visible = false,
 		ZIndex = 100,
 		Parent = ScreenGui,
@@ -6748,8 +7690,6 @@ end
 function Library:SetWatermark(Text)
 	local X, Y = Library:GetTextBounds(Text, Library.Font, 14)
 	Library.Watermark.Size = UDim2.new(0, X + 15, 0, (Y * 1.5) + 3)
-	Library:SetWatermarkVisibility(true)
-
 	Library.WatermarkText.Text = Text
 end
 
@@ -6858,12 +7798,13 @@ function Library:UpdateInfoLoggerBlacklist(BlacklistList)
 			continue
 		end
 
+		local IsInBlacklist = RegistryValue.SoundId and BlacklistList[RegistryValue.SoundId]
+			or BlacklistList[RegistryValue.AnimationId]
+
 		if
-			not BlacklistList[RegistryValue.AnimationId]
-			and (
-				not getgenv().Settings.AutoParryLogging.BlockLogged
-				or not getgenv().Settings.AutoParryBuilder.BuilderSettingsList[RegistryValue.AnimationId]
-			)
+			not IsInBlacklist
+			and (not getgenv().Settings.AutoParryLogging.BlockLogged or not getgenv().Settings.AutoParryBuilder.Animation.BuilderSettingsList[RegistryValue.AnimationId])
+			and Index <= getgenv().Settings.AutoParryLogging.MaximumSize
 		then
 			continue
 		end
@@ -6896,6 +7837,68 @@ function Library:UpdateInfoLoggerSize()
 	Library.InfoLoggerFrame.Size = UDim2.new(0, math.max(XSize + 10, 210), 0, YSize + 23)
 end
 
+function Library:AddSoundDataToInfoLogger(DataName, SoundId, SoundName, Sound, Distance)
+	if Library.InfoLoggerData.BlacklistList[SoundId] then
+		return
+	end
+
+	if
+		getgenv().Settings.AutoParryLogging.BlockLogged
+		and getgenv().Settings.AutoParryBuilder.Sound.BuilderSettingsList[SoundId]
+	then
+		return
+	end
+
+	if (#Library.InfoLoggerData.ContainerLabels + 1) > getgenv().Settings.AutoParryLogging.MaximumSize then
+		-- Get first element
+		local FirstElement = Library.InfoLoggerData.ContainerLabels[1]
+		if FirstElement then
+			-- Destroy the last element
+			FirstElement:Destroy()
+
+			-- Remove element from table
+			table.remove(Library.InfoLoggerData.ContainerLabels, 1)
+		end
+	end
+
+	local InfoContainerLabel = Library:CreateLabel({
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Size = UDim2.new(1, 0, 0, 18),
+		TextSize = 13,
+		Visible = false,
+		ZIndex = 110,
+		Parent = Library.InfoLoggerContainer,
+	}, true)
+
+	InfoContainerLabel.Text = string.format(
+		"[%s] is playing (%s) with Sound ID of %s (%.2fm away) (%s)",
+		DataName,
+		SoundName,
+		SoundId,
+		Distance,
+		getgenv().Settings.AutoParryBuilder.Sound.BuilderSettingsList[SoundId] and "AP" or "X"
+	)
+
+	InfoContainerLabel.Visible = true
+	InfoContainerLabel.TextColor3 = Library.FontColor
+
+	Library.InfoLoggerData.ContainerLabels[#Library.InfoLoggerData.ContainerLabels + 1] = InfoContainerLabel
+	Library.RegistryMap[InfoContainerLabel].Properties.TextColor3 = "FontColor"
+	Library.RegistryMap[InfoContainerLabel].SoundId = SoundId
+
+	InfoContainerLabel.InputBegan:Connect(function(Input)
+		if Input.UserInputType == Enum.UserInputType.MouseButton2 and not Library:MouseIsOverOpenedFrame() then
+			setclipboard(Library.RegistryMap[InfoContainerLabel].SoundId)
+			Library:Notify(
+				string.format("Copied %s to clipboard!", Library.RegistryMap[InfoContainerLabel].SoundId),
+				2.5
+			)
+		end
+	end)
+
+	Library:UpdateInfoLoggerSize()
+end
+
 function Library:AddAnimationDataToInfoLogger(DataName, AnimationId, AnimationName, AnimationTrack, Animation, Distance)
 	if Library.InfoLoggerData.BlacklistList[AnimationId] then
 		return
@@ -6903,20 +7906,21 @@ function Library:AddAnimationDataToInfoLogger(DataName, AnimationId, AnimationNa
 
 	if
 		getgenv().Settings.AutoParryLogging.BlockLogged
-		and getgenv().Settings.AutoParryBuilder.BuilderSettingsList[AnimationId]
+		and getgenv().Settings.AutoParryBuilder.Animation.BuilderSettingsList[AnimationId]
 	then
 		return
 	end
 
-	if #Library.InfoLoggerData.ContainerLabels >= 8 then
+	if (#Library.InfoLoggerData.ContainerLabels + 1) > getgenv().Settings.AutoParryLogging.MaximumSize then
 		-- Get first element
 		local FirstElement = Library.InfoLoggerData.ContainerLabels[1]
+		if FirstElement then
+			-- Destroy the last element
+			FirstElement:Destroy()
 
-		-- Destroy the last element
-		FirstElement:Destroy()
-
-		-- Remove element from table
-		table.remove(Library.InfoLoggerData.ContainerLabels, 1)
+			-- Remove element from table
+			table.remove(Library.InfoLoggerData.ContainerLabels, 1)
+		end
 	end
 
 	local InfoContainerLabel = Library:CreateLabel({
@@ -6946,14 +7950,14 @@ function Library:AddAnimationDataToInfoLogger(DataName, AnimationId, AnimationNa
 	end
 
 	InfoContainerLabel.Text = string.format(
-		"[%s] is playing (%s) with ID of %s (%.2fm away) (%s) (%s) (%s)",
+		"[%s] is playing (%s) with Animation ID of %s (%.2fm away) (%s) (%s) (%s)",
 		DataName,
 		AnimationName,
 		AnimationId,
 		Distance,
 		TypeString,
 		TwoHandedString,
-		getgenv().Settings.AutoParryBuilder.BuilderSettingsList[AnimationId] and "AP" or "X"
+		getgenv().Settings.AutoParryBuilder.Animation.BuilderSettingsList[AnimationId] and "AP" or "X"
 	)
 
 	InfoContainerLabel.Visible = true
@@ -7689,6 +8693,10 @@ function Event:Connect(Function)
 
 	-- Connect
 	self.Connection = self.RobloxEvent and self.RobloxEvent:Connect(Function) or nil
+end
+
+function Event:Get()
+	return self.Connection
 end
 
 function Event:Disconnect()

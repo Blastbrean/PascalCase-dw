@@ -13,6 +13,10 @@ function Event:Connect(Function)
 	self.Connection = self.RobloxEvent and self.RobloxEvent:Connect(Function) or nil
 end
 
+function Event:Get()
+	return self.Connection
+end
+
 function Event:Disconnect()
 	if not self.Connection then
 		return
