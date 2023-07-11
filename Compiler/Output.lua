@@ -2526,7 +2526,6 @@ function AutoParry.GetThrownProjectiles()
 					end
 
 					-- Dummy markers...
-					local DummyMarkerOne = false
 					local DummyMarkerTwo = false
 
 					local Entity = Descendant:FindFirstAncestorWhichIsA("Model")
@@ -2538,12 +2537,8 @@ function AutoParry.GetThrownProjectiles()
 							return
 						end
 
-						-- Create a dummy humanoid-root-part...
-						HumanoidRootPart = Instance.new("Part")
-						HumanoidRootPart.Position = Descendant.Position
-
-						-- Marker one...
-						DummyMarkerOne = true
+						-- Set a dummy humanoid-root-part...
+						HumanoidRootPart = Descendant
 					end
 
 					local Humanoid = Entity:FindFirstChild("Humanoid")
@@ -2578,10 +2573,6 @@ function AutoParry.GetThrownProjectiles()
 					AutoParry:OnPartInRange(Entity, Descendant, nil, HumanoidRootPart, Humanoid)
 
 					-- Destroy our created instances (if we created them...)
-					if DummyMarkerOne then
-						HumanoidRootPart:Destroy()
-					end
-
 					if DummyMarkerTwo then
 						Humanoid:Destroy()
 					end
@@ -2617,7 +2608,6 @@ function AutoParry.GetThrownProjectiles()
 				end
 
 				-- Dummy markers...
-				local DummyMarkerOne = false
 				local DummyMarkerTwo = false
 
 				local Entity = Descendant:FindFirstAncestorWhichIsA("Model")
@@ -2629,12 +2619,8 @@ function AutoParry.GetThrownProjectiles()
 						return
 					end
 
-					-- Create a dummy humanoid-root-part...
-					HumanoidRootPart = Instance.new("Part")
-					HumanoidRootPart.Position = Descendant.Position
-
-					-- Marker one...
-					DummyMarkerOne = true
+					-- Set a dummy humanoid-root-part...
+					HumanoidRootPart = Descendant
 				end
 
 				local Humanoid = Entity:FindFirstChild("Humanoid")
@@ -2670,10 +2656,6 @@ function AutoParry.GetThrownProjectiles()
 					AutoParry:OnPartInRange(Entity, Descendant, nil, HumanoidRootPart, Humanoid)
 
 					-- Destroy our created instances (if we created them...)
-					if DummyMarkerOne then
-						HumanoidRootPart:Destroy()
-					end
-
 					if DummyMarkerTwo then
 						Humanoid:Destroy()
 					end
@@ -2940,7 +2922,6 @@ function AutoParry:OnEntityAdded(Entity)
 					end
 
 					-- Dummy markers...
-					local DummyMarkerOne = false
 					local DummyMarkerTwo = false
 
 					local Entity = Descendant:FindFirstAncestorWhichIsA("Model")
@@ -2952,12 +2933,8 @@ function AutoParry:OnEntityAdded(Entity)
 							return
 						end
 
-						-- Create a dummy humanoid-root-part...
-						HumanoidRootPart = Instance.new("Part")
-						HumanoidRootPart.Position = Descendant.Position
-
-						-- Marker one...
-						DummyMarkerOne = true
+						-- Set a dummy humanoid-root-part...
+						HumanoidRootPart = Descendant
 					end
 
 					local Humanoid = Entity:FindFirstChild("Humanoid")
@@ -2992,10 +2969,6 @@ function AutoParry:OnEntityAdded(Entity)
 					AutoParry:OnPartInRange(Entity, Descendant, nil, HumanoidRootPart, Humanoid)
 
 					-- Destroy our created instances (if we created them...)
-					if DummyMarkerOne then
-						HumanoidRootPart:Destroy()
-					end
-
 					if DummyMarkerTwo then
 						Humanoid:Destroy()
 					end
@@ -3032,7 +3005,6 @@ function AutoParry:OnEntityAdded(Entity)
 				end
 
 				-- Dummy markers...
-				local DummyMarkerOne = false
 				local DummyMarkerTwo = false
 
 				local Entity = Descendant:FindFirstAncestorWhichIsA("Model")
@@ -3044,12 +3016,8 @@ function AutoParry:OnEntityAdded(Entity)
 						return
 					end
 
-					-- Create a dummy humanoid-root-part...
-					HumanoidRootPart = Instance.new("Part")
-					HumanoidRootPart.Position = Descendant.Position
-
-					-- Marker one...
-					DummyMarkerOne = true
+					-- Set a dummy humanoid-root-part...
+					HumanoidRootPart = Descendant
 				end
 
 				local Humanoid = Entity:FindFirstChild("Humanoid")
@@ -3085,10 +3053,6 @@ function AutoParry:OnEntityAdded(Entity)
 					AutoParry:OnPartInRange(Entity, Descendant, nil, HumanoidRootPart, Humanoid)
 
 					-- Destroy our created instances (if we created them...)
-					if DummyMarkerOne then
-						HumanoidRootPart:Destroy()
-					end
-
 					if DummyMarkerTwo then
 						Humanoid:Destroy()
 					end
@@ -8734,7 +8698,15 @@ function Library:AddPartToInfoLogger(DataName, PartName, Distance)
 		getgenv().Settings.AutoParryLogging.BlockLogged
 		and getgenv().Settings.AutoParryBuilder.Part.BuilderSettingsList[PartName]
 	then
-		return
+		local BuilderData = getgenv().Settings.AutoParryBuilder.Part.BuilderSettingsList[PartName]
+		if
+			string.lower(BuilderData.PartParentName) ~= "none"
+			and string.lower(BuilderData.PartParentName) ~= ""
+			and not string.find(string.lower(Entity.Name), string.lower(BuilderData.PartParentName))
+			and string.lower(BuilderData.PartParentName) ~= "humanoid"
+		then
+			return
+		end
 	end
 
 	if (#Library.InfoLoggerData.ContainerLabels + 1) > getgenv().Settings.AutoParryLogging.MaximumSize then

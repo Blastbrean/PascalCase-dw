@@ -2984,7 +2984,15 @@ function Library:AddPartToInfoLogger(DataName, PartName, Distance)
 		getgenv().Settings.AutoParryLogging.BlockLogged
 		and getgenv().Settings.AutoParryBuilder.Part.BuilderSettingsList[PartName]
 	then
-		return
+		local BuilderData = getgenv().Settings.AutoParryBuilder.Part.BuilderSettingsList[PartName]
+		if
+			string.lower(BuilderData.PartParentName) ~= "none"
+			and string.lower(BuilderData.PartParentName) ~= ""
+			and not string.find(string.lower(Entity.Name), string.lower(BuilderData.PartParentName))
+			and string.lower(BuilderData.PartParentName) ~= "humanoid"
+		then
+			return
+		end
 	end
 
 	if (#Library.InfoLoggerData.ContainerLabels + 1) > getgenv().Settings.AutoParryLogging.MaximumSize then

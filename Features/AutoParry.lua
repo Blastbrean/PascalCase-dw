@@ -1685,7 +1685,6 @@ function AutoParry.GetThrownProjectiles()
 					end
 
 					-- Dummy markers...
-					local DummyMarkerOne = false
 					local DummyMarkerTwo = false
 
 					local Entity = Descendant:FindFirstAncestorWhichIsA("Model")
@@ -1697,12 +1696,8 @@ function AutoParry.GetThrownProjectiles()
 							return
 						end
 
-						-- Create a dummy humanoid-root-part...
-						HumanoidRootPart = Instance.new("Part")
-						HumanoidRootPart.Position = Descendant.Position
-
-						-- Marker one...
-						DummyMarkerOne = true
+						-- Set a dummy humanoid-root-part...
+						HumanoidRootPart = Descendant
 					end
 
 					local Humanoid = Entity:FindFirstChild("Humanoid")
@@ -1737,10 +1732,6 @@ function AutoParry.GetThrownProjectiles()
 					AutoParry:OnPartInRange(Entity, Descendant, nil, HumanoidRootPart, Humanoid)
 
 					-- Destroy our created instances (if we created them...)
-					if DummyMarkerOne then
-						HumanoidRootPart:Destroy()
-					end
-
 					if DummyMarkerTwo then
 						Humanoid:Destroy()
 					end
@@ -1776,7 +1767,6 @@ function AutoParry.GetThrownProjectiles()
 				end
 
 				-- Dummy markers...
-				local DummyMarkerOne = false
 				local DummyMarkerTwo = false
 
 				local Entity = Descendant:FindFirstAncestorWhichIsA("Model")
@@ -1788,12 +1778,8 @@ function AutoParry.GetThrownProjectiles()
 						return
 					end
 
-					-- Create a dummy humanoid-root-part...
-					HumanoidRootPart = Instance.new("Part")
-					HumanoidRootPart.Position = Descendant.Position
-
-					-- Marker one...
-					DummyMarkerOne = true
+					-- Set a dummy humanoid-root-part...
+					HumanoidRootPart = Descendant
 				end
 
 				local Humanoid = Entity:FindFirstChild("Humanoid")
@@ -1829,10 +1815,6 @@ function AutoParry.GetThrownProjectiles()
 					AutoParry:OnPartInRange(Entity, Descendant, nil, HumanoidRootPart, Humanoid)
 
 					-- Destroy our created instances (if we created them...)
-					if DummyMarkerOne then
-						HumanoidRootPart:Destroy()
-					end
-
 					if DummyMarkerTwo then
 						Humanoid:Destroy()
 					end
@@ -2099,7 +2081,6 @@ function AutoParry:OnEntityAdded(Entity)
 					end
 
 					-- Dummy markers...
-					local DummyMarkerOne = false
 					local DummyMarkerTwo = false
 
 					local Entity = Descendant:FindFirstAncestorWhichIsA("Model")
@@ -2111,12 +2092,8 @@ function AutoParry:OnEntityAdded(Entity)
 							return
 						end
 
-						-- Create a dummy humanoid-root-part...
-						HumanoidRootPart = Instance.new("Part")
-						HumanoidRootPart.Position = Descendant.Position
-
-						-- Marker one...
-						DummyMarkerOne = true
+						-- Set a dummy humanoid-root-part...
+						HumanoidRootPart = Descendant
 					end
 
 					local Humanoid = Entity:FindFirstChild("Humanoid")
@@ -2151,10 +2128,6 @@ function AutoParry:OnEntityAdded(Entity)
 					AutoParry:OnPartInRange(Entity, Descendant, nil, HumanoidRootPart, Humanoid)
 
 					-- Destroy our created instances (if we created them...)
-					if DummyMarkerOne then
-						HumanoidRootPart:Destroy()
-					end
-
 					if DummyMarkerTwo then
 						Humanoid:Destroy()
 					end
@@ -2191,7 +2164,6 @@ function AutoParry:OnEntityAdded(Entity)
 				end
 
 				-- Dummy markers...
-				local DummyMarkerOne = false
 				local DummyMarkerTwo = false
 
 				local Entity = Descendant:FindFirstAncestorWhichIsA("Model")
@@ -2203,12 +2175,8 @@ function AutoParry:OnEntityAdded(Entity)
 						return
 					end
 
-					-- Create a dummy humanoid-root-part...
-					HumanoidRootPart = Instance.new("Part")
-					HumanoidRootPart.Position = Descendant.Position
-
-					-- Marker one...
-					DummyMarkerOne = true
+					-- Set a dummy humanoid-root-part...
+					HumanoidRootPart = Descendant
 				end
 
 				local Humanoid = Entity:FindFirstChild("Humanoid")
@@ -2244,10 +2212,6 @@ function AutoParry:OnEntityAdded(Entity)
 					AutoParry:OnPartInRange(Entity, Descendant, nil, HumanoidRootPart, Humanoid)
 
 					-- Destroy our created instances (if we created them...)
-					if DummyMarkerOne then
-						HumanoidRootPart:Destroy()
-					end
-
 					if DummyMarkerTwo then
 						Humanoid:Destroy()
 					end
