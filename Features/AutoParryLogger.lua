@@ -90,6 +90,30 @@ function AutoParryLogger:CacheAnimations()
 	AutoParryLogger.HasCachedAnimations = true
 end
 
+function AutoParryLogger:OnPart(Player, Entity, Part, HumanoidRootPart, LocalPlayerData)
+	if not HumanoidRootPart or not LocalPlayerData or not LocalPlayerData.HumanoidRootPart then
+		return
+	end
+
+	if Pascal:GetConfig().AutoParryLogging.Type ~= "Part" then
+		return
+	end
+
+	if Player and Player == LocalPlayerData.Player and not Pascal:GetConfig().AutoParryLogging.LogYourself then
+		return
+	end
+
+	if not AutoParryLogger.IsDistanceOkBetweenParts(HumanoidRootPart, LocalPlayerData.HumanoidRootPart) then
+		return
+	end
+
+	Library:AddPartToInfoLogger(
+		Entity.Name,
+		Part.Name,
+		AutoParryLogger.GetDistanceBetweenParts(HumanoidRootPart, LocalPlayerData.HumanoidRootPart)
+	)
+end
+
 function AutoParryLogger:OnSoundPlayed(Player, Entity, HumanoidRootPart, LocalPlayerData, Sound)
 	if not Sound.SoundId or not HumanoidRootPart or not LocalPlayerData or not LocalPlayerData.HumanoidRootPart then
 		return

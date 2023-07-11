@@ -9,7 +9,10 @@ local HttpService = GetService("HttpService")
 -- Configuration system for combat (this code is horrible, but i don't care enough right now. it works then it works.)
 function CombatTab:LoadLinoriaConfigFromName(Name)
 	if not isfile(Pascal:GetConfigurationPath() .. "/CombatConfigurations/" .. Name .. ".export") then
-		Library:Notify(string.format("Unable to load linoria-config %s, file does not exist! (make sure it is .export)", Name), 2.0)
+		Library:Notify(
+			string.format("Unable to load linoria-config %s, file does not exist! (make sure it is .export)", Name),
+			2.0
+		)
 		return
 	end
 
@@ -466,10 +469,119 @@ function CombatTab:AutoParryBuilderGroup()
 	})
 
 	local SubTab3 = TabBox:AddTab("Part")
-	SubTab3:AddLabel(
-		"This auto-parry option is a work in progress, come back later to see if it's done...",
-		{ Wrap = true }
-	)
+	SubTab3:AddInput("PartNickNameInput", {
+		Numeric = false,
+		Finished = false,
+		Text = "Part Nickname",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.NickName = Value
+		end,
+	})
+
+	SubTab3:AddInput("PartNameInput", {
+		Numeric = false,
+		Finished = false,
+		Text = "Part Name",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.PartName = Value
+		end,
+	})
+
+	SubTab3:AddInput("PartParentNameInput", {
+		Numeric = false,
+		Finished = false,
+		Text = "Part Parent",
+		Tooltip = "Entity who threw the part (partial match), leave as none or empty for none, leave humanoid for humanoid / player...",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.PartParentName = Value
+		end,
+	})
+
+	SubTab3:AddSlider("PartMinimumDistanceSlider", {
+		Text = "Minimum distance to activate",
+		Default = 5,
+		Min = 0,
+		Max = 100,
+		Rounding = 0,
+		Compact = false,
+		Suffix = "m",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.MinimumDistance = Value
+		end,
+	})
+
+	SubTab3:AddSlider("PartMaximumDistanceSlider", {
+		Text = "Maximum distance to activate",
+		Default = 15,
+		Min = 0,
+		Max = 100,
+		Rounding = 0,
+		Compact = false,
+		Suffix = "m",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.MaximumDistance = Value
+		end,
+	})
+
+	SubTab3:AddInput("PartAttemptDelayInput", {
+		Numeric = true,
+		Finished = false,
+		Text = "Delay until attempt (ms)",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.AttemptDelay = Value
+		end,
+	})
+
+	SubTab3:AddToggle("PartRollInsteadOfParryToggle", {
+		Text = "Roll instead of parry",
+		Default = false, -- Default value (true / false)
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.ShouldRoll = Value
+		end,
+	})
+
+	SubTab3:AddToggle("PartEnableParryRepeat", {
+		Text = "Enable parry repeating",
+		Default = false, -- Default value (true / false)
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.ParryRepeat = Value
+		end,
+	})
+
+	local Depbox3 = SubTab3:AddDependencyBox()
+	Depbox3:AddSlider("PartParryRepeatSlider", {
+		Text = "Parry repeat times",
+		Default = 3,
+		Min = 1,
+		Max = 100,
+		Rounding = 0,
+		Compact = false,
+		Suffix = "x",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.ParryRepeatTimes = Value
+		end,
+	})
+
+	Depbox3:AddInput("PartParryRepeatDelayInput", {
+		Numeric = true,
+		Finished = false,
+		Text = "Delay between repeat parries (ms)",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.ParryRepeatDelay = Value
+		end,
+	})
+
+	Depbox3:SetupDependencies({
+		{ Toggles.PartEnableParryRepeat, true }, -- We can also pass `false` if we only want our features to show when the toggle is off!
+	})
 end
 
 function CombatTab:BuilderSettingsGroup()
@@ -521,11 +633,24 @@ function CombatTab:BuilderSettingsGroup()
 				Toggles.SoundEnableParryRepeat:SetValue(BuilderSetting.ParryRepeat)
 				Toggles.SoundRollInsteadOfParryToggle:SetValue(BuilderSetting.ShouldRoll)
 			end
+
+			if Type == "Part" then
+				Options.PartNickNameInput:SetValue(BuilderSetting.NickName)
+				Options.PartNameInput:SetValue(BuilderSetting.PartName)
+				Options.PartParentNameInput:SetValue(BuilderSetting.PartParentName)
+				Options.PartMinimumDistanceSlider:SetValue(BuilderSetting.MinimumDistance)
+				Options.PartMaximumDistanceSlider:SetValue(BuilderSetting.MaximumDistance)
+				Options.PartAttemptDelayInput:SetValue(BuilderSetting.AttemptDelay)
+				Options.PartParryRepeatSlider:SetValue(BuilderSetting.ParryRepeatTimes)
+				Options.PartParryRepeatDelayInput:SetValue(BuilderSetting.ParryRepeatDelay)
+				Toggles.PartEnableParryRepeat:SetValue(BuilderSetting.ParryRepeat)
+				Toggles.PartRollInsteadOfParryToggle:SetValue(BuilderSetting.ShouldRoll)
+			end
 		end,
 	})
 
 	SubTab1:AddDropdown("BuilderSettingsType", {
-		Values = { "Animation", "Sound" },
+		Values = { "Animation", "Sound", "Part" },
 
 		Default = 1, -- number index of the value / string
 		Multi = false, -- true / false, allows multiple choices to be selected
@@ -633,6 +758,49 @@ function CombatTab:BuilderSettingsGroup()
 			)
 		end
 
+		if Type == "Part" then
+			if BuilderSettingsList[Pascal:GetConfig().AutoParryBuilder[Type].PartName] then
+				Library:Notify(
+					string.format(
+						"%s(%s) is already in sound-list, cannot re-register it",
+						Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+						Pascal:GetConfig().AutoParryBuilder[Type].PartName
+					),
+					2.5
+				)
+
+				return
+			end
+
+			BuilderSettingsList[Pascal:GetConfig().AutoParryBuilder[Type].PartName] = {
+				Identifier = string.format(
+					"%s | %s",
+					Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+					Pascal:GetConfig().AutoParryBuilder[Type].PartName
+				),
+				Type = Pascal:GetConfig().AutoParryBuilder[Type].Type,
+				NickName = Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+				PartName = Pascal:GetConfig().AutoParryBuilder[Type].PartName,
+				PartParentName = Pascal:GetConfig().AutoParryBuilder[Type].PartParentName,
+				MinimumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MinimumDistance,
+				MaximumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MaximumDistance,
+				AttemptDelay = Pascal:GetConfig().AutoParryBuilder[Type].AttemptDelay,
+				ShouldRoll = Pascal:GetConfig().AutoParryBuilder[Type].ShouldRoll,
+				ParryRepeat = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeat,
+				ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatTimes,
+				ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatDelay,
+			}
+
+			Library:Notify(
+				string.format(
+					"Registered %s(%s) into list",
+					Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+					Pascal:GetConfig().AutoParryBuilder[Type].PartName
+				),
+				2.5
+			)
+		end
+
 		CombatTab:UpdateBuilderSettingsList()
 		Options.BuilderSettingsList:SetValue(nil)
 	end)
@@ -688,7 +856,31 @@ function CombatTab:BuilderSettingsGroup()
 				Pascal:GetConfig().AutoParryBuilder[Type].SoundId
 			)
 
-			BuilderSetting.NickName = Pascal:GetConfig().AutoParryBuilder[Type].SoundId
+			BuilderSetting.NickName = Pascal:GetConfig().AutoParryBuilder[Type].NickName
+			BuilderSetting.MinimumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MinimumDistance
+			BuilderSetting.MaximumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MaximumDistance
+			BuilderSetting.AttemptDelay = Pascal:GetConfig().AutoParryBuilder[Type].AttemptDelay
+			BuilderSetting.ShouldRoll = Pascal:GetConfig().AutoParryBuilder[Type].ShouldRoll
+			BuilderSetting.ParryRepeat = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeat
+			BuilderSetting.ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatTimes
+			BuilderSetting.ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatDelay
+		end
+
+		if Type == "Part" then
+			Library:Notify(
+				string.format("Updated %s(%s) from part-list", BuilderSetting.NickName, BuilderSetting.PartName),
+				2.5
+			)
+
+			-- Handle the builder settings list
+			BuilderSetting.Identifier = string.format(
+				"%s | %s",
+				Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+				Pascal:GetConfig().AutoParryBuilder[Type].PartName
+			)
+
+			BuilderSetting.NickName = Pascal:GetConfig().AutoParryBuilder[Type].NickName
+			BuilderSetting.PartParentName = Pascal:GetConfig().AutoParryBuilder[Type].PartParentName
 			BuilderSetting.MinimumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MinimumDistance
 			BuilderSetting.MaximumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MaximumDistance
 			BuilderSetting.AttemptDelay = Pascal:GetConfig().AutoParryBuilder[Type].AttemptDelay
@@ -731,6 +923,16 @@ function CombatTab:BuilderSettingsGroup()
 
 			local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder[Type].BuilderSettingsList
 			BuilderSettingsList[BuilderSetting.SoundId] = nil
+		end
+
+		if Type == "Part" then
+			Library:Notify(
+				string.format("Deleted %s(%s) from list", BuilderSetting.NickName, BuilderSetting.PartName),
+				2.5
+			)
+
+			local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder[Type].BuilderSettingsList
+			BuilderSettingsList[BuilderSetting.PartName] = nil
 		end
 
 		CombatTab:UpdateBuilderSettingsList()
@@ -920,7 +1122,7 @@ function CombatTab:AutoParryGroup()
 	})
 
 	SubTab2:AddDropdown("LoggerTypeDropDown", {
-		Values = { "Animation", "Sound" },
+		Values = { "Animation", "Sound", "Part" },
 		Default = 1,
 		Multi = false,
 		Text = "Logger Type",
@@ -993,7 +1195,9 @@ function CombatTab:AutoParryGroup()
 		end,
 	})
 
-	SubTab3:AddToggle("EnableAutoParryBindToggle", {
+	local Depbox9 = SubTab3:AddDependencyBox()
+
+	Depbox9:AddToggle("EnableAutoParryBindToggle", {
 		Text = "Enable auto-parry bind",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
@@ -1006,8 +1210,16 @@ function CombatTab:AutoParryGroup()
 		Text = "Auto-parry bind",
 		Modes = { "Toggle", "Hold" },
 		Callback = function(State)
+			if not Pascal:GetConfig().AutoParry.BindEnabled then
+				return
+			end
+
 			Pascal:GetConfig().AutoParry.Enabled = State
 		end,
+	})
+
+	Depbox9:SetupDependencies({
+		{ Toggles.EnableAutoParryToggle, true }, -- We can also pass `false` if we only want our features to show when the toggle is off!
 	})
 
 	SubTab3:AddDropdown("InputMethodDropdown", {
@@ -1230,7 +1442,7 @@ function CombatTab:UpdateBuilderSettingsList()
 		table.insert(VisibleBuilderSettingsList, BuilderSettings.Identifier)
 	end
 
-	table.sort(VisibleBuilderSettingsList, function(a,b)
+	table.sort(VisibleBuilderSettingsList, function(a, b)
 		return a:lower() < b:lower()
 	end)
 

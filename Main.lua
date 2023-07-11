@@ -131,6 +131,9 @@ local function MainThreadFn()
 
 				-- Get auto-parry workspace sounds...
 				AutoParry.GetWorkspaceSounds()
+
+				-- Get auto-parry thrown sounds...
+				AutoParry.GetThrownProjectiles()
 			end
 
 			-- Create menu...

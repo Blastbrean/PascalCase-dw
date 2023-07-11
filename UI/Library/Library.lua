@@ -2936,6 +2936,7 @@ function Library:UpdateInfoLoggerBlacklist(BlacklistList)
 		end
 
 		local IsInBlacklist = RegistryValue.SoundId and BlacklistList[RegistryValue.SoundId]
+			or RegistryValue.PartName and BlacklistList[RegistryValue.PartName]
 			or BlacklistList[RegistryValue.AnimationId]
 
 		if
@@ -2972,6 +2973,67 @@ function Library:UpdateInfoLoggerSize()
 	end
 
 	Library.InfoLoggerFrame.Size = UDim2.new(0, math.max(XSize + 10, 210), 0, YSize + 23)
+end
+
+function Library:AddPartToInfoLogger(DataName, PartName, Distance)
+	if Library.InfoLoggerData.BlacklistList[PartName] then
+		return
+	end
+
+	if
+		getgenv().Settings.AutoParryLogging.BlockLogged
+		and getgenv().Settings.AutoParryBuilder.Part.BuilderSettingsList[PartName]
+	then
+		return
+	end
+
+	if (#Library.InfoLoggerData.ContainerLabels + 1) > getgenv().Settings.AutoParryLogging.MaximumSize then
+		-- Get first element
+		local FirstElement = Library.InfoLoggerData.ContainerLabels[1]
+		if FirstElement then
+			-- Destroy the last element
+			FirstElement:Destroy()
+
+			-- Remove element from table
+			table.remove(Library.InfoLoggerData.ContainerLabels, 1)
+		end
+	end
+
+	local InfoContainerLabel = Library:CreateLabel({
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Size = UDim2.new(1, 0, 0, 18),
+		TextSize = 13,
+		Visible = false,
+		ZIndex = 110,
+		Parent = Library.InfoLoggerContainer,
+	}, true)
+
+	InfoContainerLabel.Text = string.format(
+		"[%s] is sending part (%s) (%.2fm away) (%s)",
+		DataName,
+		PartName,
+		Distance,
+		getgenv().Settings.AutoParryBuilder.Part.BuilderSettingsList[PartName] and "AP" or "X"
+	)
+
+	InfoContainerLabel.Visible = true
+	InfoContainerLabel.TextColor3 = Library.FontColor
+
+	Library.InfoLoggerData.ContainerLabels[#Library.InfoLoggerData.ContainerLabels + 1] = InfoContainerLabel
+	Library.RegistryMap[InfoContainerLabel].Properties.TextColor3 = "FontColor"
+	Library.RegistryMap[InfoContainerLabel].PartName = PartName
+
+	InfoContainerLabel.InputBegan:Connect(function(Input)
+		if Input.UserInputType == Enum.UserInputType.MouseButton2 and not Library:MouseIsOverOpenedFrame() then
+			setclipboard(Library.RegistryMap[InfoContainerLabel].PartName)
+			Library:Notify(
+				string.format("Copied %s to clipboard!", Library.RegistryMap[InfoContainerLabel].PartName),
+				2.5
+			)
+		end
+	end)
+
+	Library:UpdateInfoLoggerSize()
 end
 
 function Library:AddSoundDataToInfoLogger(DataName, SoundId, SoundName, Sound, Distance)

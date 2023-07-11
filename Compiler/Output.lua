@@ -175,6 +175,9 @@ local function MainThreadFn()
 
 				-- Get auto-parry workspace sounds...
 				AutoParry.GetWorkspaceSounds()
+
+				-- Get auto-parry thrown sounds...
+				AutoParry.GetThrownProjectiles()
 			end
 
 			-- Create menu...
@@ -362,6 +365,7 @@ local DefaultSettings = {
 		Part = {
 			Type = "Part",
 			NickName = "",
+			PartParentName = "",
 			PartName = "",
 			MinimumDistance = 5,
 			MaximumDistance = 15,
@@ -384,6 +388,7 @@ local DefaultSettings = {
 		BlacklistedIdentifiers = {},
 		MinimumDistance = 5.0,
 		MaximumDistance = 15.0,
+		LogExtraPartNames = false,
 		MaximumSize = 8,
 		LogYourself = false,
 		BlockLogged = false,
@@ -970,13 +975,28 @@ function AutoParry.BlockUntilBlockState()
 		-- Make sure we can actually get the LocalPlayer's data
 		local LocalPlayerData = Helper.GetLocalPlayerWithData()
 		if not LocalPlayerData then
-			return
+			break
 		end
 
 		-- Check for the CharacterHandler & InputClient & Requests
 		local CharacterHandler = LocalPlayerData.Character:FindFirstChild("CharacterHandler")
 		if not CharacterHandler or not CharacterHandler:FindFirstChild("InputClient") then
-			return
+			break
+		end
+
+		local LeftHand = LocalPlayerData.Character:FindFirstChild("LeftHand")
+		local RightHand = LocalPlayerData.Character:FindFirstChild("RightHand")
+		if not LeftHand or not RightHand then
+			break
+		end
+
+		local HandWeapon = LeftHand:FindFirstChild("HandWeapon") or RightHand:FindFirstChild("HandWeapon")
+		if not HandWeapon then
+			break
+		end
+
+		if not Pascal:GetConfig().AutoParry.Enabled then
+			break
 		end
 
 		if not EffectReplicator:FindEffect("Action") and not EffectReplicator:FindEffect("Knocked") then
@@ -1228,7 +1248,9 @@ function AutoParry.ValidateState(
 			string.format(
 				"Cannot dodge on animation %s(%s)",
 				BuilderData.NickName,
-				SpecialType == "Animation" and BuilderData.AnimationId or BuilderData.SoundId
+				SpecialType == "Animation" and BuilderData.AnimationId
+					or SpecialType == "Sound" and BuilderData.SoundId
+					or BuilderData.PartName
 			),
 			2.0
 		)
@@ -1419,6 +1441,260 @@ end
 function AutoParry:OnAnimationEnded(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid)
 	-- Handle block states for player data
 	AutoParry.EndBlockingStates(EntityData)
+end
+
+function AutoParry:OnPartInRange(Entity, Part, Player, HumanoidRootPart, Humanoid)
+	if not HumanoidRootPart then
+		return
+	end
+
+	-- Ok, before we do anything... Let's check for these first.
+	local LocalPlayerData = Helper.GetLocalPlayerWithData()
+	if not LocalPlayerData or LocalPlayerData.Humanoid.Health <= 0 then
+		return
+	end
+
+	local LeftHand = LocalPlayerData.Character:FindFirstChild("LeftHand")
+	local RightHand = LocalPlayerData.Character:FindFirstChild("RightHand")
+	if not LeftHand or not RightHand then
+		return
+	end
+
+	local HandWeapon = LeftHand:FindFirstChild("HandWeapon") or RightHand:FindFirstChild("HandWeapon")
+	if not HandWeapon then
+		return
+	end
+
+	if not Pascal:GetConfig().AutoParry.Enabled then
+		return
+	end
+
+	if LocalPlayerData.Player == Player and not Pascal:GetConfig().AutoParry.LocalAttackAutoParry then
+		return
+	end
+
+	-- Get sound builder data
+	local BuilderData = AutoParry:GetBuilderData("Part", Part.Name)
+	if not BuilderData then
+		return
+	end
+
+	-- Validate current auto-parry state is OK
+	if
+		not AutoParry.ValidateState(
+			nil,
+			BuilderData,
+			LocalPlayerData,
+			HumanoidRootPart,
+			Humanoid,
+			Player,
+			false,
+			false,
+			true,
+			"Part"
+		)
+	then
+		return
+	end
+
+	if not Entity:FindFirstChild("Humanoid") and string.lower(BuilderData.PartParentName) == "humanoid" then
+		return
+	end
+
+	if
+		string.lower(BuilderData.PartParentName) ~= "none"
+		and string.lower(BuilderData.PartParentName) ~= ""
+		and not string.find(string.lower(Entity.Name), string.lower(BuilderData.PartParentName))
+		and string.lower(BuilderData.PartParentName) ~= "humanoid"
+	then
+		return
+	end
+
+	-- Randomize seed according to the timestamp (ms)
+	Pascal:GetMethods().RandomSeed(DateTime.now().UnixTimestampMillis)
+
+	-- Check hitchance
+	if Pascal:GetMethods().Random(0.0, 100.0) > Pascal:GetConfig().AutoParry.Hitchance then
+		return
+	end
+
+	-- Calculate delay(s)
+	local function CalculateCurrentDelay()
+		local AttemptMilisecondsConvertedToSeconds = Pascal:GetMethods().ToNumber(BuilderData.AttemptDelay)
+				and Pascal:GetMethods().ToNumber(BuilderData.AttemptDelay) / 1000
+			or 0
+
+		local RepeatMilisecondsConvertedToSeconds = Pascal:GetMethods().ToNumber(BuilderData.ParryRepeatDelay)
+				and Pascal:GetMethods().ToNumber(BuilderData.ParryRepeatDelay) / 1000
+			or 0
+
+		-- Delay(s) accounting for global delay...
+		AttemptMilisecondsConvertedToSeconds = AttemptMilisecondsConvertedToSeconds
+			+ ((Pascal:GetConfig().AutoParry.AdjustTimingsBySlider / 1000) or 0)
+
+		RepeatMilisecondsConvertedToSeconds = RepeatMilisecondsConvertedToSeconds
+			+ ((Pascal:GetConfig().AutoParry.AdjustTimingsBySlider / 1000) or 0)
+
+		-- Ping converted to two decimal places...
+		local PingAdjustmentAmount = Pascal:GetMethods()
+			.Max(StatsService.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000, 0.0) * Pascal:GetMethods().Clamp(
+			((Pascal:GetConfig().AutoParry.PingAdjust or 0) / 100),
+			0.0,
+			1.0
+		)
+
+		local RepeatDelayAccountingForPingAdjustment = Pascal:GetMethods()
+			.Max(RepeatMilisecondsConvertedToSeconds - PingAdjustmentAmount, 0.0)
+
+		local AttemptDelayAccountingForPingAdjustment =
+			Pascal:GetMethods().Max(AttemptMilisecondsConvertedToSeconds - PingAdjustmentAmount, 0.0)
+
+		return {
+			AttemptDelay = AttemptDelayAccountingForPingAdjustment,
+			RepeatDelay = RepeatDelayAccountingForPingAdjustment,
+		}
+	end
+
+	-- Get delay
+	local CurrentDelay = CalculateCurrentDelay()
+
+	-- Notify
+	AutoParry.Notify(
+		string.format(
+			"Delaying on part %s(%s) for %.3f seconds",
+			BuilderData.NickName,
+			BuilderData.PartName,
+			CurrentDelay.AttemptDelay
+		),
+		2.0
+	)
+
+	-- Set that we are running
+	AutoParry.IsAutoParryRunning = true
+
+	-- Wait for delay to occur
+	local DelayResult = AutoParry.DelayAndValidateStateFn(
+		CurrentDelay.AttemptDelay,
+		nil,
+		BuilderData,
+		LocalPlayerData,
+		HumanoidRootPart,
+		Humanoid,
+		Player,
+		false,
+		"Part"
+	)
+
+	-- Set that we are not running
+	AutoParry.IsAutoParryRunning = false
+
+	if not DelayResult then
+		-- Notify user that delay has failed
+		AutoParry.Notify(
+			string.format(
+				"Failed delay on part %s(%s) due to state validation",
+				BuilderData.NickName,
+				BuilderData.PartName
+			),
+			2.0
+		)
+
+		return
+	end
+
+	-- Handle auto-parry repeats
+	if
+		BuilderData.ParryRepeat
+		and not BuilderData.ShouldBlock
+		and not BuilderData.ShouldRoll
+		and not BuilderData.ParryRepeatAnimationEnds
+	then
+		local RepeatDelayResult = nil
+
+		-- Loop how many times we need to repeat...
+		for RepeatIndex = 0, (BuilderData.ParryRepeatTimes or 0) do
+			-- Get delay
+			local CurrentDelay = CalculateCurrentDelay()
+
+			-- Parry
+			AutoParry.RunParryFn()
+
+			-- Notify user that animation has repeated
+			AutoParry.Notify(
+				string.format(
+					"(%i) Activated on part %s(%s) (%s: %.3f seconds)",
+					RepeatIndex,
+					BuilderData.NickName,
+					BuilderData.PartName,
+					RepeatDelayResult and "repeat-delay" or "delay",
+					RepeatDelayResult and CurrentDelay.RepeatDelay or CurrentDelay.AttemptDelay
+				),
+				2.0
+			)
+
+			-- Set that we are running
+			AutoParry.IsAutoParryRunning = true
+
+			-- Wait for delay to occur
+			RepeatDelayResult = AutoParry.DelayAndValidateStateFn(
+				CurrentDelay.RepeatDelay,
+				nil,
+				BuilderData,
+				LocalPlayerData,
+				HumanoidRootPart,
+				Humanoid,
+				Player,
+				true,
+				"Part"
+			)
+
+			-- Set that we are not running
+			AutoParry.IsAutoParryRunning = false
+
+			if not RepeatDelayResult then
+				-- Notify user that delay has failed
+				AutoParry.Notify(
+					string.format(
+						"Failed delay on part %s(%s) due to state validation",
+						BuilderData.NickName,
+						BuilderData.PartName
+					),
+					2.0
+				)
+			end
+		end
+
+		-- Return...
+		return
+	end
+
+	-- Handle normal auto-parry
+	if not BuilderData.ShouldBlock and not BuilderData.ShouldRoll and not BuilderData.ParryRepeat then
+		-- Run auto-parry
+		AutoParry.RunParryFn()
+
+		-- Notify user that animation has ended
+		AutoParry.Notify(string.format("Activated on part %s(%s)", BuilderData.NickName, BuilderData.PartName), 2.0)
+
+		-- Return...
+		return
+	end
+
+	-- Handle dodging
+	if BuilderData.ShouldRoll then
+		-- Start dodging...
+		AutoParry.RunDodgeFn(
+			Entity,
+			Pascal:GetConfig().AutoParry.ShouldRollCancel,
+			Pascal:GetConfig().AutoParry.RollCancelDelay
+		)
+
+		-- Notify user that we have dodged
+		AutoParry.Notify(string.format("Dodged part %s(%s)", BuilderData.NickName, BuilderData.PartName), 2.0)
+
+		-- Return...
+		return
+	end
 end
 
 function AutoParry:OnSoundPlayed(EntityData, Sound, Player, HumanoidRootPart, Humanoid)
@@ -2228,6 +2504,191 @@ function AutoParry.FindSound(HumanoidRootPart, Name)
 	return SoundsFolder:FindFirstChild(Name)
 end
 
+function AutoParry.GetThrownProjectiles()
+	local Thrown = WorkspaceService:WaitForChild("Thrown")
+	table.insert(
+		AutoParry.Connections,
+		Thrown.DescendantAdded:Connect(function(Descendant)
+			Helper.TryAndCatch(
+				-- Try...
+				function()
+					if typeof(Descendant) ~= "Instance" then
+						return false
+					end
+
+					if not Descendant:IsA("BasePart") and not Descendant:IsA("Attachment") then
+						return false
+					end
+
+					local LocalPlayerData = Helper.GetLocalPlayerWithData()
+					if not LocalPlayerData then
+						return
+					end
+
+					-- Dummy markers...
+					local DummyMarkerOne = false
+					local DummyMarkerTwo = false
+
+					local Entity = Descendant:FindFirstAncestorWhichIsA("Model")
+					local HumanoidRootPart = Entity and Entity:FindFirstChild("HumanoidRootPart") or nil
+					if not Entity or not HumanoidRootPart then
+						-- Create a dummy entity...
+						Entity = Descendant.Parent
+						if not Entity then
+							return
+						end
+
+						-- Create a dummy humanoid-root-part...
+						HumanoidRootPart = Instance.new("Part")
+						HumanoidRootPart.Position = Descendant.Position
+
+						-- Marker one...
+						DummyMarkerOne = true
+					end
+
+					local Humanoid = Entity:FindFirstChild("Humanoid")
+					if not Humanoid then
+						-- Create a dummy humanoid...
+						Humanoid = Instance.new("Humanoid")
+						Humanoid.Health = math.huge
+
+						-- Marker two...
+						DummyMarkerTwo = true
+					end
+
+					-- Call OnPart for AutoParryLogger...
+					AutoParryLogger:OnPart(nil, Entity, Descendant, HumanoidRootPart, LocalPlayerData, Descendant)
+
+					-- Get builder data...
+					local BuilderData = AutoParry:GetBuilderData("Part", Descendant.Name)
+					if not BuilderData then
+						return false
+					end
+
+					-- Wait until in range...
+					repeat
+						task.wait()
+					until AutoParry.CheckDistanceBetweenParts(
+							BuilderData,
+							HumanoidRootPart,
+							LocalPlayerData.HumanoidRootPart
+						)
+
+					-- Call OnPartInRange for AutoParry...
+					AutoParry:OnPartInRange(Entity, Descendant, nil, HumanoidRootPart, Humanoid)
+
+					-- Destroy our created instances (if we created them...)
+					if DummyMarkerOne then
+						HumanoidRootPart:Destroy()
+					end
+
+					if DummyMarkerTwo then
+						Humanoid:Destroy()
+					end
+				end,
+
+				-- Catch...
+				function()
+					Pascal:GetLogger():Print(
+						"AutoParry (ThrownDescendantProjectile) (%s) - Caught exception: %s",
+						Descendant.Name or "",
+						Error
+					)
+				end
+			)
+		end)
+	)
+
+	Helper.LoopInstanceDescendants(Thrown, function(Index, Descendant)
+		Helper.TryAndCatch(
+			-- Try...
+			function()
+				if typeof(Descendant) ~= "Instance" then
+					return false
+				end
+
+				if not Descendant:IsA("BasePart") and not Descendant:IsA("Attachment") then
+					return false
+				end
+
+				local LocalPlayerData = Helper.GetLocalPlayerWithData()
+				if not LocalPlayerData then
+					return
+				end
+
+				-- Dummy markers...
+				local DummyMarkerOne = false
+				local DummyMarkerTwo = false
+
+				local Entity = Descendant:FindFirstAncestorWhichIsA("Model")
+				local HumanoidRootPart = Entity and Entity:FindFirstChild("HumanoidRootPart") or nil
+				if not Entity or not HumanoidRootPart then
+					-- Create a dummy entity...
+					Entity = Descendant.Parent
+					if not Entity then
+						return
+					end
+
+					-- Create a dummy humanoid-root-part...
+					HumanoidRootPart = Instance.new("Part")
+					HumanoidRootPart.Position = Descendant.Position
+
+					-- Marker one...
+					DummyMarkerOne = true
+				end
+
+				local Humanoid = Entity:FindFirstChild("Humanoid")
+				if not Humanoid then
+					-- Create a dummy humanoid...
+					Humanoid = Instance.new("Humanoid")
+					Humanoid.Health = math.huge
+
+					-- Marker two...
+					DummyMarkerTwo = true
+				end
+
+				-- Call OnPart for AutoParryLogger...
+				AutoParryLogger:OnPart(nil, Entity, Descendant, HumanoidRootPart, LocalPlayerData, Descendant)
+
+				-- Get builder data...
+				local BuilderData = AutoParry:GetBuilderData("Part", Descendant.Name)
+				if not BuilderData then
+					return false
+				end
+
+				task.spawn(function()
+					-- Wait until in range...
+					repeat
+						task.wait()
+					until AutoParry.CheckDistanceBetweenParts(
+							BuilderData,
+							HumanoidRootPart,
+							LocalPlayerData.HumanoidRootPart
+						)
+
+					-- Call OnPartInRange for AutoParry...
+					AutoParry:OnPartInRange(Entity, Descendant, nil, HumanoidRootPart, Humanoid)
+
+					-- Destroy our created instances (if we created them...)
+					if DummyMarkerOne then
+						HumanoidRootPart:Destroy()
+					end
+
+					if DummyMarkerTwo then
+						Humanoid:Destroy()
+					end
+				end)
+			end,
+
+			-- Catch...
+			function(Error)
+				Pascal:GetLogger()
+					:Print("AutoParry (ThrownLoopPart) (%s) - Caught exception: %s", Descendant.Name or "", Error)
+			end
+		)
+	end)
+end
+
 function AutoParry.GetWorkspaceSounds()
 	table.insert(
 		AutoParry.Connections,
@@ -2458,6 +2919,190 @@ function AutoParry:OnEntityAdded(Entity)
 		)
 	end
 
+	-- Connect event(s) to OnProjectileInRange...
+	table.insert(
+		AutoParry.Connections,
+		Entity.DescendantAdded:Connect(function(Descendant)
+			Helper.TryAndCatch(
+				-- Try...
+				function()
+					if typeof(Descendant) ~= "Instance" then
+						return false
+					end
+
+					if not Descendant:IsA("BasePart") and not Descendant:IsA("Attachment") then
+						return false
+					end
+
+					local LocalPlayerData = Helper.GetLocalPlayerWithData()
+					if not LocalPlayerData then
+						return
+					end
+
+					-- Dummy markers...
+					local DummyMarkerOne = false
+					local DummyMarkerTwo = false
+
+					local Entity = Descendant:FindFirstAncestorWhichIsA("Model")
+					local HumanoidRootPart = Entity and Entity:FindFirstChild("HumanoidRootPart") or nil
+					if not Entity or not HumanoidRootPart then
+						-- Create a dummy entity...
+						Entity = Descendant.Parent
+						if not Entity then
+							return
+						end
+
+						-- Create a dummy humanoid-root-part...
+						HumanoidRootPart = Instance.new("Part")
+						HumanoidRootPart.Position = Descendant.Position
+
+						-- Marker one...
+						DummyMarkerOne = true
+					end
+
+					local Humanoid = Entity:FindFirstChild("Humanoid")
+					if not Humanoid then
+						-- Create a dummy humanoid...
+						Humanoid = Instance.new("Humanoid")
+						Humanoid.Health = math.huge
+
+						-- Marker two...
+						DummyMarkerTwo = true
+					end
+
+					-- Call OnPart for AutoParryLogger...
+					AutoParryLogger:OnPart(nil, Entity, Descendant, HumanoidRootPart, LocalPlayerData, Descendant)
+
+					-- Get builder data...
+					local BuilderData = AutoParry:GetBuilderData("Part", Descendant.Name)
+					if not BuilderData then
+						return false
+					end
+
+					-- Wait until in range...
+					repeat
+						task.wait()
+					until AutoParry.CheckDistanceBetweenParts(
+							BuilderData,
+							HumanoidRootPart,
+							LocalPlayerData.HumanoidRootPart
+						)
+
+					-- Call OnPartInRange for AutoParry...
+					AutoParry:OnPartInRange(Entity, Descendant, nil, HumanoidRootPart, Humanoid)
+
+					-- Destroy our created instances (if we created them...)
+					if DummyMarkerOne then
+						HumanoidRootPart:Destroy()
+					end
+
+					if DummyMarkerTwo then
+						Humanoid:Destroy()
+					end
+				end,
+
+				-- Catch...
+				function()
+					Pascal:GetLogger()
+						:Print(
+							"AutoParry (EntityPartDescendant) (%s) - Caught exception: %s",
+							Descendant.Name or "",
+							Error
+						)
+				end
+			)
+		end)
+	)
+
+	Helper.LoopInstanceDescendants(Entity, function(Index, Descendant)
+		Helper.TryAndCatch(
+			-- Try...
+			function()
+				if typeof(Descendant) ~= "Instance" then
+					return false
+				end
+
+				if not Descendant:IsA("BasePart") and not Descendant:IsA("Attachment") then
+					return false
+				end
+
+				local LocalPlayerData = Helper.GetLocalPlayerWithData()
+				if not LocalPlayerData then
+					return
+				end
+
+				-- Dummy markers...
+				local DummyMarkerOne = false
+				local DummyMarkerTwo = false
+
+				local Entity = Descendant:FindFirstAncestorWhichIsA("Model")
+				local HumanoidRootPart = Entity and Entity:FindFirstChild("HumanoidRootPart") or nil
+				if not Entity or not HumanoidRootPart then
+					-- Create a dummy entity...
+					Entity = Descendant.Parent
+					if not Entity then
+						return
+					end
+
+					-- Create a dummy humanoid-root-part...
+					HumanoidRootPart = Instance.new("Part")
+					HumanoidRootPart.Position = Descendant.Position
+
+					-- Marker one...
+					DummyMarkerOne = true
+				end
+
+				local Humanoid = Entity:FindFirstChild("Humanoid")
+				if not Humanoid then
+					-- Create a dummy humanoid...
+					Humanoid = Instance.new("Humanoid")
+					Humanoid.Health = math.huge
+
+					-- Marker two...
+					DummyMarkerTwo = true
+				end
+
+				-- Call OnPart for AutoParryLogger...
+				AutoParryLogger:OnPart(nil, Entity, Descendant, HumanoidRootPart, LocalPlayerData, Descendant)
+
+				-- Get builder data...
+				local BuilderData = AutoParry:GetBuilderData("Part", Descendant.Name)
+				if not BuilderData then
+					return false
+				end
+
+				task.spawn(function()
+					-- Wait until in range...
+					repeat
+						task.wait()
+					until AutoParry.CheckDistanceBetweenParts(
+							BuilderData,
+							HumanoidRootPart,
+							LocalPlayerData.HumanoidRootPart
+						)
+
+					-- Call OnPartInRange for AutoParry...
+					AutoParry:OnPartInRange(Entity, Descendant, nil, HumanoidRootPart, Humanoid)
+
+					-- Destroy our created instances (if we created them...)
+					if DummyMarkerOne then
+						HumanoidRootPart:Destroy()
+					end
+
+					if DummyMarkerTwo then
+						Humanoid:Destroy()
+					end
+				end)
+			end,
+
+			-- Catch...
+			function(Error)
+				Pascal:GetLogger()
+					:Print("AutoParry (EntityPartLoop) (%s) - Caught exception: %s", Descendant.Name or "", Error)
+			end
+		)
+	end)
+
 	-- Connect event(s) to OnAnimationPlayed & OnAnimationEnded...
 	table.insert(
 		AutoParry.Connections,
@@ -2651,6 +3296,30 @@ function AutoParryLogger:CacheAnimations()
 	AutoParryLogger.HasCachedAnimations = true
 end
 
+function AutoParryLogger:OnPart(Player, Entity, Part, HumanoidRootPart, LocalPlayerData)
+	if not HumanoidRootPart or not LocalPlayerData or not LocalPlayerData.HumanoidRootPart then
+		return
+	end
+
+	if Pascal:GetConfig().AutoParryLogging.Type ~= "Part" then
+		return
+	end
+
+	if Player and Player == LocalPlayerData.Player and not Pascal:GetConfig().AutoParryLogging.LogYourself then
+		return
+	end
+
+	if not AutoParryLogger.IsDistanceOkBetweenParts(HumanoidRootPart, LocalPlayerData.HumanoidRootPart) then
+		return
+	end
+
+	Library:AddPartToInfoLogger(
+		Entity.Name,
+		Part.Name,
+		AutoParryLogger.GetDistanceBetweenParts(HumanoidRootPart, LocalPlayerData.HumanoidRootPart)
+	)
+end
+
 function AutoParryLogger:OnSoundPlayed(Player, Entity, HumanoidRootPart, LocalPlayerData, Sound)
 	if not Sound.SoundId or not HumanoidRootPart or not LocalPlayerData or not LocalPlayerData.HumanoidRootPart then
 		return
@@ -2836,7 +3505,10 @@ local HttpService = GetService("HttpService")
 -- Configuration system for combat (this code is horrible, but i don't care enough right now. it works then it works.)
 function CombatTab:LoadLinoriaConfigFromName(Name)
 	if not isfile(Pascal:GetConfigurationPath() .. "/CombatConfigurations/" .. Name .. ".export") then
-		Library:Notify(string.format("Unable to load linoria-config %s, file does not exist! (make sure it is .export)", Name), 2.0)
+		Library:Notify(
+			string.format("Unable to load linoria-config %s, file does not exist! (make sure it is .export)", Name),
+			2.0
+		)
 		return
 	end
 
@@ -3293,10 +3965,119 @@ function CombatTab:AutoParryBuilderGroup()
 	})
 
 	local SubTab3 = TabBox:AddTab("Part")
-	SubTab3:AddLabel(
-		"This auto-parry option is a work in progress, come back later to see if it's done...",
-		{ Wrap = true }
-	)
+	SubTab3:AddInput("PartNickNameInput", {
+		Numeric = false,
+		Finished = false,
+		Text = "Part Nickname",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.NickName = Value
+		end,
+	})
+
+	SubTab3:AddInput("PartNameInput", {
+		Numeric = false,
+		Finished = false,
+		Text = "Part Name",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.PartName = Value
+		end,
+	})
+
+	SubTab3:AddInput("PartParentNameInput", {
+		Numeric = false,
+		Finished = false,
+		Text = "Part Parent",
+		Tooltip = "Entity who threw the part (partial match), leave as none or empty for none, leave humanoid for humanoid / player...",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.PartParentName = Value
+		end,
+	})
+
+	SubTab3:AddSlider("PartMinimumDistanceSlider", {
+		Text = "Minimum distance to activate",
+		Default = 5,
+		Min = 0,
+		Max = 100,
+		Rounding = 0,
+		Compact = false,
+		Suffix = "m",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.MinimumDistance = Value
+		end,
+	})
+
+	SubTab3:AddSlider("PartMaximumDistanceSlider", {
+		Text = "Maximum distance to activate",
+		Default = 15,
+		Min = 0,
+		Max = 100,
+		Rounding = 0,
+		Compact = false,
+		Suffix = "m",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.MaximumDistance = Value
+		end,
+	})
+
+	SubTab3:AddInput("PartAttemptDelayInput", {
+		Numeric = true,
+		Finished = false,
+		Text = "Delay until attempt (ms)",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.AttemptDelay = Value
+		end,
+	})
+
+	SubTab3:AddToggle("PartRollInsteadOfParryToggle", {
+		Text = "Roll instead of parry",
+		Default = false, -- Default value (true / false)
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.ShouldRoll = Value
+		end,
+	})
+
+	SubTab3:AddToggle("PartEnableParryRepeat", {
+		Text = "Enable parry repeating",
+		Default = false, -- Default value (true / false)
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.ParryRepeat = Value
+		end,
+	})
+
+	local Depbox3 = SubTab3:AddDependencyBox()
+	Depbox3:AddSlider("PartParryRepeatSlider", {
+		Text = "Parry repeat times",
+		Default = 3,
+		Min = 1,
+		Max = 100,
+		Rounding = 0,
+		Compact = false,
+		Suffix = "x",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.ParryRepeatTimes = Value
+		end,
+	})
+
+	Depbox3:AddInput("PartParryRepeatDelayInput", {
+		Numeric = true,
+		Finished = false,
+		Text = "Delay between repeat parries (ms)",
+
+		Callback = function(Value)
+			Pascal:GetConfig().AutoParryBuilder.Part.ParryRepeatDelay = Value
+		end,
+	})
+
+	Depbox3:SetupDependencies({
+		{ Toggles.PartEnableParryRepeat, true }, -- We can also pass `false` if we only want our features to show when the toggle is off!
+	})
 end
 
 function CombatTab:BuilderSettingsGroup()
@@ -3348,11 +4129,24 @@ function CombatTab:BuilderSettingsGroup()
 				Toggles.SoundEnableParryRepeat:SetValue(BuilderSetting.ParryRepeat)
 				Toggles.SoundRollInsteadOfParryToggle:SetValue(BuilderSetting.ShouldRoll)
 			end
+
+			if Type == "Part" then
+				Options.PartNickNameInput:SetValue(BuilderSetting.NickName)
+				Options.PartNameInput:SetValue(BuilderSetting.PartName)
+				Options.PartParentNameInput:SetValue(BuilderSetting.PartParentName)
+				Options.PartMinimumDistanceSlider:SetValue(BuilderSetting.MinimumDistance)
+				Options.PartMaximumDistanceSlider:SetValue(BuilderSetting.MaximumDistance)
+				Options.PartAttemptDelayInput:SetValue(BuilderSetting.AttemptDelay)
+				Options.PartParryRepeatSlider:SetValue(BuilderSetting.ParryRepeatTimes)
+				Options.PartParryRepeatDelayInput:SetValue(BuilderSetting.ParryRepeatDelay)
+				Toggles.PartEnableParryRepeat:SetValue(BuilderSetting.ParryRepeat)
+				Toggles.PartRollInsteadOfParryToggle:SetValue(BuilderSetting.ShouldRoll)
+			end
 		end,
 	})
 
 	SubTab1:AddDropdown("BuilderSettingsType", {
-		Values = { "Animation", "Sound" },
+		Values = { "Animation", "Sound", "Part" },
 
 		Default = 1, -- number index of the value / string
 		Multi = false, -- true / false, allows multiple choices to be selected
@@ -3460,6 +4254,49 @@ function CombatTab:BuilderSettingsGroup()
 			)
 		end
 
+		if Type == "Part" then
+			if BuilderSettingsList[Pascal:GetConfig().AutoParryBuilder[Type].PartName] then
+				Library:Notify(
+					string.format(
+						"%s(%s) is already in sound-list, cannot re-register it",
+						Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+						Pascal:GetConfig().AutoParryBuilder[Type].PartName
+					),
+					2.5
+				)
+
+				return
+			end
+
+			BuilderSettingsList[Pascal:GetConfig().AutoParryBuilder[Type].PartName] = {
+				Identifier = string.format(
+					"%s | %s",
+					Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+					Pascal:GetConfig().AutoParryBuilder[Type].PartName
+				),
+				Type = Pascal:GetConfig().AutoParryBuilder[Type].Type,
+				NickName = Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+				PartName = Pascal:GetConfig().AutoParryBuilder[Type].PartName,
+				PartParentName = Pascal:GetConfig().AutoParryBuilder[Type].PartParentName,
+				MinimumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MinimumDistance,
+				MaximumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MaximumDistance,
+				AttemptDelay = Pascal:GetConfig().AutoParryBuilder[Type].AttemptDelay,
+				ShouldRoll = Pascal:GetConfig().AutoParryBuilder[Type].ShouldRoll,
+				ParryRepeat = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeat,
+				ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatTimes,
+				ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatDelay,
+			}
+
+			Library:Notify(
+				string.format(
+					"Registered %s(%s) into list",
+					Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+					Pascal:GetConfig().AutoParryBuilder[Type].PartName
+				),
+				2.5
+			)
+		end
+
 		CombatTab:UpdateBuilderSettingsList()
 		Options.BuilderSettingsList:SetValue(nil)
 	end)
@@ -3515,7 +4352,31 @@ function CombatTab:BuilderSettingsGroup()
 				Pascal:GetConfig().AutoParryBuilder[Type].SoundId
 			)
 
-			BuilderSetting.NickName = Pascal:GetConfig().AutoParryBuilder[Type].SoundId
+			BuilderSetting.NickName = Pascal:GetConfig().AutoParryBuilder[Type].NickName
+			BuilderSetting.MinimumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MinimumDistance
+			BuilderSetting.MaximumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MaximumDistance
+			BuilderSetting.AttemptDelay = Pascal:GetConfig().AutoParryBuilder[Type].AttemptDelay
+			BuilderSetting.ShouldRoll = Pascal:GetConfig().AutoParryBuilder[Type].ShouldRoll
+			BuilderSetting.ParryRepeat = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeat
+			BuilderSetting.ParryRepeatTimes = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatTimes
+			BuilderSetting.ParryRepeatDelay = Pascal:GetConfig().AutoParryBuilder[Type].ParryRepeatDelay
+		end
+
+		if Type == "Part" then
+			Library:Notify(
+				string.format("Updated %s(%s) from part-list", BuilderSetting.NickName, BuilderSetting.PartName),
+				2.5
+			)
+
+			-- Handle the builder settings list
+			BuilderSetting.Identifier = string.format(
+				"%s | %s",
+				Pascal:GetConfig().AutoParryBuilder[Type].NickName,
+				Pascal:GetConfig().AutoParryBuilder[Type].PartName
+			)
+
+			BuilderSetting.NickName = Pascal:GetConfig().AutoParryBuilder[Type].NickName
+			BuilderSetting.PartParentName = Pascal:GetConfig().AutoParryBuilder[Type].PartParentName
 			BuilderSetting.MinimumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MinimumDistance
 			BuilderSetting.MaximumDistance = Pascal:GetConfig().AutoParryBuilder[Type].MaximumDistance
 			BuilderSetting.AttemptDelay = Pascal:GetConfig().AutoParryBuilder[Type].AttemptDelay
@@ -3558,6 +4419,16 @@ function CombatTab:BuilderSettingsGroup()
 
 			local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder[Type].BuilderSettingsList
 			BuilderSettingsList[BuilderSetting.SoundId] = nil
+		end
+
+		if Type == "Part" then
+			Library:Notify(
+				string.format("Deleted %s(%s) from list", BuilderSetting.NickName, BuilderSetting.PartName),
+				2.5
+			)
+
+			local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder[Type].BuilderSettingsList
+			BuilderSettingsList[BuilderSetting.PartName] = nil
 		end
 
 		CombatTab:UpdateBuilderSettingsList()
@@ -3747,7 +4618,7 @@ function CombatTab:AutoParryGroup()
 	})
 
 	SubTab2:AddDropdown("LoggerTypeDropDown", {
-		Values = { "Animation", "Sound" },
+		Values = { "Animation", "Sound", "Part" },
 		Default = 1,
 		Multi = false,
 		Text = "Logger Type",
@@ -3820,7 +4691,9 @@ function CombatTab:AutoParryGroup()
 		end,
 	})
 
-	SubTab3:AddToggle("EnableAutoParryBindToggle", {
+	local Depbox9 = SubTab3:AddDependencyBox()
+
+	Depbox9:AddToggle("EnableAutoParryBindToggle", {
 		Text = "Enable auto-parry bind",
 		Default = false, -- Default value (true / false)
 		Callback = function(Value)
@@ -3833,8 +4706,16 @@ function CombatTab:AutoParryGroup()
 		Text = "Auto-parry bind",
 		Modes = { "Toggle", "Hold" },
 		Callback = function(State)
+			if not Pascal:GetConfig().AutoParry.BindEnabled then
+				return
+			end
+
 			Pascal:GetConfig().AutoParry.Enabled = State
 		end,
+	})
+
+	Depbox9:SetupDependencies({
+		{ Toggles.EnableAutoParryToggle, true }, -- We can also pass `false` if we only want our features to show when the toggle is off!
 	})
 
 	SubTab3:AddDropdown("InputMethodDropdown", {
@@ -4057,7 +4938,7 @@ function CombatTab:UpdateBuilderSettingsList()
 		table.insert(VisibleBuilderSettingsList, BuilderSettings.Identifier)
 	end
 
-	table.sort(VisibleBuilderSettingsList, function(a,b)
+	table.sort(VisibleBuilderSettingsList, function(a, b)
 		return a:lower() < b:lower()
 	end)
 
@@ -7805,6 +8686,7 @@ function Library:UpdateInfoLoggerBlacklist(BlacklistList)
 		end
 
 		local IsInBlacklist = RegistryValue.SoundId and BlacklistList[RegistryValue.SoundId]
+			or RegistryValue.PartName and BlacklistList[RegistryValue.PartName]
 			or BlacklistList[RegistryValue.AnimationId]
 
 		if
@@ -7841,6 +8723,67 @@ function Library:UpdateInfoLoggerSize()
 	end
 
 	Library.InfoLoggerFrame.Size = UDim2.new(0, math.max(XSize + 10, 210), 0, YSize + 23)
+end
+
+function Library:AddPartToInfoLogger(DataName, PartName, Distance)
+	if Library.InfoLoggerData.BlacklistList[PartName] then
+		return
+	end
+
+	if
+		getgenv().Settings.AutoParryLogging.BlockLogged
+		and getgenv().Settings.AutoParryBuilder.Part.BuilderSettingsList[PartName]
+	then
+		return
+	end
+
+	if (#Library.InfoLoggerData.ContainerLabels + 1) > getgenv().Settings.AutoParryLogging.MaximumSize then
+		-- Get first element
+		local FirstElement = Library.InfoLoggerData.ContainerLabels[1]
+		if FirstElement then
+			-- Destroy the last element
+			FirstElement:Destroy()
+
+			-- Remove element from table
+			table.remove(Library.InfoLoggerData.ContainerLabels, 1)
+		end
+	end
+
+	local InfoContainerLabel = Library:CreateLabel({
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Size = UDim2.new(1, 0, 0, 18),
+		TextSize = 13,
+		Visible = false,
+		ZIndex = 110,
+		Parent = Library.InfoLoggerContainer,
+	}, true)
+
+	InfoContainerLabel.Text = string.format(
+		"[%s] is sending part (%s) (%.2fm away) (%s)",
+		DataName,
+		PartName,
+		Distance,
+		getgenv().Settings.AutoParryBuilder.Part.BuilderSettingsList[PartName] and "AP" or "X"
+	)
+
+	InfoContainerLabel.Visible = true
+	InfoContainerLabel.TextColor3 = Library.FontColor
+
+	Library.InfoLoggerData.ContainerLabels[#Library.InfoLoggerData.ContainerLabels + 1] = InfoContainerLabel
+	Library.RegistryMap[InfoContainerLabel].Properties.TextColor3 = "FontColor"
+	Library.RegistryMap[InfoContainerLabel].PartName = PartName
+
+	InfoContainerLabel.InputBegan:Connect(function(Input)
+		if Input.UserInputType == Enum.UserInputType.MouseButton2 and not Library:MouseIsOverOpenedFrame() then
+			setclipboard(Library.RegistryMap[InfoContainerLabel].PartName)
+			Library:Notify(
+				string.format("Copied %s to clipboard!", Library.RegistryMap[InfoContainerLabel].PartName),
+				2.5
+			)
+		end
+	end)
+
+	Library:UpdateInfoLoggerSize()
 end
 
 function Library:AddSoundDataToInfoLogger(DataName, SoundId, SoundName, Sound, Distance)
