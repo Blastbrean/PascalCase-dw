@@ -389,7 +389,11 @@ function AutoParry.ValidateState(
 	then
 		-- Notify user...
 		AutoParry.Notify(
-			string.format("Cannot dodge on animation %s(%s)", BuilderData.NickName, BuilderData.AnimationId),
+			string.format(
+				"Cannot dodge on animation %s(%s)",
+				BuilderData.NickName,
+				SpecialType == "Animation" and BuilderData.AnimationId or BuilderData.SoundId
+			),
 			2.0
 		)
 
@@ -629,7 +633,7 @@ function AutoParry:OnSoundPlayed(EntityData, Sound, Player, HumanoidRootPart, Hu
 			false,
 			false,
 			true,
-			true
+			"Sound"
 		)
 	then
 		return
@@ -707,7 +711,7 @@ function AutoParry:OnSoundPlayed(EntityData, Sound, Player, HumanoidRootPart, Hu
 		Humanoid,
 		Player,
 		false,
-		true
+		"Sound"
 	)
 
 	-- Set that we are not running
@@ -770,7 +774,7 @@ function AutoParry:OnSoundPlayed(EntityData, Sound, Player, HumanoidRootPart, Hu
 				Humanoid,
 				Player,
 				true,
-				true
+				"Sound"
 			)
 
 			-- Set that we are not running
@@ -1035,7 +1039,8 @@ function AutoParry:OnAnimationPlayed(EntityData, AnimationTrack, Animation, Play
 		HumanoidRootPart,
 		Humanoid,
 		Player,
-		false
+		false,
+		"Animation"
 	)
 
 	if not DelayResult then
@@ -1095,7 +1100,8 @@ function AutoParry:OnAnimationPlayed(EntityData, AnimationTrack, Animation, Play
 				HumanoidRootPart,
 				Humanoid,
 				Player,
-				true
+				true,
+				"Animation"
 			)
 
 			-- Set that we are not running
