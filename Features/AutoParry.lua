@@ -19,11 +19,6 @@ local Helper = require("Modules/Helpers/Helper")
 local Pascal = require("Modules/Helpers/Pascal")
 local AutoParryLogger = require("Features/AutoParryLogger")
 
-function AutoParry.SimulateKeyFromKeyPress(KeyCode)
-	-- Send key event
-	Pascal:GetMethods().KeyPress(KeyCode)
-end
-
 function AutoParry.CheckDistanceBetweenParts(BuilderData, Part1, Part2)
 	if not BuilderData or not BuilderData.MaximumDistance or not BuilderData.MinimumDistance then
 		return false
@@ -82,7 +77,7 @@ end
 function AutoParry.RunDodgeFn(Entity, ShouldRollCancel, RollCancelDelay)
 	if Pascal:GetConfig().AutoParry.InputMethod == "KeyPress" then
 		-- Run event to roll...
-		AutoParry.SimulateKeyFromKeyPress(0x51)
+		Pascal:GetMethods().KeyPress(0x51)
 
 		-- Check if we should roll cancel...
 		if ShouldRollCancel then
@@ -125,30 +120,55 @@ function AutoParry.EndBlockFn()
 	end
 end
 
+function AutoParry.BlockUntilBlockState()
+	local EffectReplicator = Pascal:GetEffectReplicator()
+
+	-- Block until actually blocking
+	while Pascal:GetMethods().Wait() do
+		-- Make sure we can actually get the LocalPlayer's data
+		local LocalPlayerData = Helper.GetLocalPlayerWithData()
+		if not LocalPlayerData then
+			break
+		end
+
+		-- Check for the CharacterHandler & InputClient & Requests
+		local CharacterHandler = LocalPlayerData.Character:FindFirstChild("CharacterHandler")
+		if not CharacterHandler or not CharacterHandler:FindFirstChild("InputClient") then
+			break
+		end
+
+		local LeftHand = LocalPlayerData.Character:FindFirstChild("LeftHand")
+		local RightHand = LocalPlayerData.Character:FindFirstChild("RightHand")
+		if not LeftHand or not RightHand then
+			break
+		end
+
+		local HandWeapon = LeftHand:FindFirstChild("HandWeapon") or RightHand:FindFirstChild("HandWeapon")
+		if not HandWeapon then
+			break
+		end
+
+		if not Pascal:GetConfig().AutoParry.Enabled then
+			break
+		end
+
+		if not EffectReplicator:FindEffect("Action") and not EffectReplicator:FindEffect("Knocked") then
+			Pascal:GetMethods().KeyPress(0x46)
+		end
+
+		if EffectReplicator:FindEffect("Blocking") then
+			break
+		end
+	end
+end
+
 function AutoParry.RunParryFn()
 	if Pascal:GetConfig().AutoParry.InputMethod == "KeyPress" then
 		-- Key press (InputClient -> On F Pressed)
 		Pascal:GetMethods().KeyPress(0x46)
 
 		-- Key hold until block state (InputClient -> On F Pressed)
-		local StartKeyHold = Pascal:GetMethods().ExecutionClock()
-		local KeyPressDelay = Pascal:GetMethods().Random(0.04503, 0.01259)
-		local EffectReplicator = Pascal:GetEffectReplicator()
-
-		repeat
-			-- Key press (InputClient -> On F Pressed)
-			if not EffectReplicator:FindEffect("Action") and not EffectReplicator:FindEffect("Knocked") then
-				Pascal:GetMethods().KeyPress(0x46)
-			end
-
-			-- Delay script...
-			Pascal:GetMethods().Wait()
-
-			-- Do blocking checks...
-			if EffectReplicator:FindEffect("Blocking") then
-				break
-			end
-		until (Pascal:GetMethods().ExecutionClock() - StartKeyHold) >= KeyPressDelay
+		AutoParry.BlockUntilBlockState()
 
 		-- Key release (InputClient -> On F Release)
 		Pascal:GetMethods().KeyRelease(0x46)
