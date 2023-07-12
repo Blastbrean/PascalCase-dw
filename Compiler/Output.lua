@@ -848,6 +848,7 @@ local AutoParry = {
 	Connections = {},
 	IsAutoParryRunning = false,
 	TimeWhenOutOfRange = nil,
+	IsPlayerSwinging = false,
 	AnimationFeint = false,
 	StartedBlocking = false,
 	SoundFeint = false,
@@ -1159,12 +1160,18 @@ function AutoParry.ValidateState(
 		not SkipCheckForAttacking
 		and not Pascal:GetConfig().AutoParry.AutoFeint
 		and InsideOfAttack
+		and AutoParry.IsPlayerSwinging
 		and Player ~= LocalPlayerData.Player
 	then
 		return false
 	end
 
-	if Pascal:GetConfig().AutoParry.AutoFeint and InsideOfAttack and Player ~= LocalPlayerData.Player then
+	if
+		Pascal:GetConfig().AutoParry.AutoFeint
+		and InsideOfAttack
+		and AutoParry.IsPlayerSwinging
+		and Player ~= LocalPlayerData.Player
+	then
 		-- Notify user that we have triggered auto-feint
 		AutoParry.Notify(
 			string.format(
@@ -1179,6 +1186,9 @@ function AutoParry.ValidateState(
 
 		-- Run feint function...
 		AutoParry.RunFeintFn()
+
+		-- Reset IsPlayerSwinging...
+		AutoParry.IsPlayerSwinging = false
 	end
 
 	-- Cannot parry while we are casting a spell...
@@ -2792,11 +2802,32 @@ function AutoParry.GetWorkspaceSounds()
 	end)
 end
 
+function AutoParry.OnLocalPlayerSwingSound()
+	AutoParry.IsPlayerSwinging = false
+end
+
+function AutoParry.OnLocalPlayerSwingSoundEnd()
+	AutoParry.IsPlayerSwinging = true
+end
+
 function AutoParry:OnEntityAdded(Entity)
 	local EntityData = AutoParry:EmplaceEntityToData(Entity)
 	local Humanoid = Entity:WaitForChild("Humanoid", math.huge)
 	local HumanoidRootPart = Entity:WaitForChild("HumanoidRootPart", math.huge)
 	local Animator = Humanoid:WaitForChild("Animator", math.huge)
+
+	-- If this is the local-player, connect special event(s)...
+	local Player = Players:GetPlayerFromCharacter(Entity)
+	if Player == Players.LocalPlayer then
+		local Swing1 = AutoParry.FindSound(HumanoidRootPart, "Swing1")
+		local Swing2 = AutoParry.FindSound(HumanoidRootPart, "Swing2")
+		if Swing1 or Swing2 then
+			table.insert(AutoParry.Connections, Swing1.Played:Connect(AutoParry.OnLocalPlayerSwingSound))
+			table.insert(AutoParry.Connections, Swing2.Played:Connect(AutoParry.OnLocalPlayerSwingSound))
+			table.insert(AutoParry.Connections, Swing1.Ended:Connect(AutoParry.OnLocalPlayerSwingSoundEnd))
+			table.insert(AutoParry.Connections, Swing2.Ended:Connect(AutoParry.OnLocalPlayerSwingSoundEnd))
+		end
+	end
 
 	-- Connect event to OnFeintPlayed...
 	local Feint = AutoParry.FindSound(HumanoidRootPart, "Feint")
