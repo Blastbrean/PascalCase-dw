@@ -57,9 +57,12 @@ end
 
 -- Hotfix for HookFunction...
 if Methods.HookFunction then
+	-- Save the old so we dont stack overflow...
+	local OldHookFunction = Methods.HookFunction
+
 	-- Call NewCClosure for prevention of call-stack abuse, and error message abuse.
 	Methods.HookFunction = function(FunctionToHook, NewFunction)
-		return Methods.HookFunction(FunctionToHook, Methods.NewCClosure(NewFunction))
+		return OldHookFunction(FunctionToHook, Methods.NewCClosure(NewFunction))
 	end
 end
 

@@ -302,9 +302,12 @@ end
 
 -- Hotfix for HookFunction...
 if Methods.HookFunction then
+	-- Save the old so we dont stack overflow...
+	local OldHookFunction = Methods.HookFunction
+
 	-- Call NewCClosure for prevention of call-stack abuse, and error message abuse.
 	Methods.HookFunction = function(FunctionToHook, NewFunction)
-		return Methods.HookFunction(FunctionToHook, Methods.NewCClosure(NewFunction))
+		return OldHookFunction(FunctionToHook, Methods.NewCClosure(NewFunction))
 	end
 end
 
@@ -843,7 +846,6 @@ __bundle_register("Features/AutoParry", function(require, _LOADED, __bundle_regi
 local AutoParry = {
 	EntityData = {},
 	Connections = {},
-	CanLocalPlayerFeint = false,
 	IsAutoParryRunning = false,
 	TimeWhenOutOfRange = nil,
 	AnimationFeint = false,
@@ -967,55 +969,17 @@ function AutoParry.EndBlockFn()
 	end
 end
 
-function AutoParry.BlockUntilBlockState()
-	local EffectReplicator = Pascal:GetEffectReplicator()
-
-	-- Block until actually blocking
-	while Pascal:GetMethods().Wait() do
-		-- Make sure we can actually get the LocalPlayer's data
-		local LocalPlayerData = Helper.GetLocalPlayerWithData()
-		if not LocalPlayerData then
-			break
-		end
-
-		-- Check for the CharacterHandler & InputClient & Requests
-		local CharacterHandler = LocalPlayerData.Character:FindFirstChild("CharacterHandler")
-		if not CharacterHandler or not CharacterHandler:FindFirstChild("InputClient") then
-			break
-		end
-
-		local LeftHand = LocalPlayerData.Character:FindFirstChild("LeftHand")
-		local RightHand = LocalPlayerData.Character:FindFirstChild("RightHand")
-		if not LeftHand or not RightHand then
-			break
-		end
-
-		local HandWeapon = LeftHand:FindFirstChild("HandWeapon") or RightHand:FindFirstChild("HandWeapon")
-		if not HandWeapon then
-			break
-		end
-
-		if not Pascal:GetConfig().AutoParry.Enabled then
-			break
-		end
-
-		if not EffectReplicator:FindEffect("Action") and not EffectReplicator:FindEffect("Knocked") then
-			AutoParry.SimulateKeyFromKeyPress(0x46)
-		end
-
-		if EffectReplicator:FindEffect("Blocking") then
-			break
-		end
-	end
-end
-
 function AutoParry.RunParryFn()
 	if Pascal:GetConfig().AutoParry.InputMethod == "KeyPress" then
 		-- Key press (InputClient -> On F Pressed)
 		Pascal:GetMethods().KeyPress(0x46)
 
 		-- Key hold until block state (InputClient -> On F Pressed)
-		AutoParry.BlockUntilBlockState()
+		-- Data by key press tool which will time key presses
+		local KeyPressDelay = Pascal:GetMethods().Random(0.02604, 0.01259)
+
+		-- Delay script before sending another
+		Pascal:GetMethods().Wait(KeyPressDelay)
 
 		-- Key release (InputClient -> On F Release)
 		Pascal:GetMethods().KeyRelease(0x46)
@@ -1029,39 +993,6 @@ function AutoParry.Notify(Text, Time)
 	end
 
 	Library:Notify(Text, Time)
-end
-
-function AutoParry.EndBlockingStates(PlayerData)
-	Helper.LoopLuaTable(PlayerData.AnimationData, function(Index, AnimationData)
-		if not AnimationData.StartedBlocking then
-			return false
-		end
-
-		if AnimationData.AnimationTrack.IsPlaying then
-			return false
-		end
-
-		-- Get animation builder data
-		local BuilderData = AutoParry:GetBuilderData("Animation", AnimationData.AnimationTrack.Animation.AnimationId)
-		if not BuilderData then
-			return false
-		end
-
-		-- End blocking
-		AutoParry.EndBlockFn()
-
-		-- End blocking state
-		AnimationData.StartedBlocking = false
-
-		-- Stop blocking state...
-		AutoParry.StartedBlocking = false
-
-		-- Notify user that blocking has stopped
-		AutoParry.Notify(
-			string.format("Ended blocking on animation %s(%s)", BuilderData.NickName, BuilderData.AnimationId),
-			2.0
-		)
-	end)
 end
 
 function AutoParry.MovementCheck(EffectReplicator)
@@ -1191,24 +1122,16 @@ function AutoParry.ValidateState(
 	local InsideOfAttack = EffectReplicator:FindEffect("LightAttack")
 		and not EffectReplicator:FindEffect("OffhandAttack")
 
-	local CurrentlyInAction = EffectReplicator:FindEffect("Action") or EffectReplicator:FindEffect("MobileAction")
-
 	if
 		not SkipCheckForAttacking
 		and not Pascal:GetConfig().AutoParry.AutoFeint
-		and not AutoParry.CanLocalPlayerFeint
-		and (InsideOfAttack or CurrentlyInAction)
+		and InsideOfAttack
 		and Player ~= LocalPlayerData.Player
 	then
 		return false
 	end
 
-	if
-		Pascal:GetConfig().AutoParry.AutoFeint
-		and (InsideOfAttack or CurrentlyInAction)
-		and AutoParry.CanLocalPlayerFeint
-		and Player ~= LocalPlayerData.Player
-	then
+	if Pascal:GetConfig().AutoParry.AutoFeint and InsideOfAttack and Player ~= LocalPlayerData.Player then
 		-- Notify user that we have triggered auto-feint
 		AutoParry.Notify(
 			string.format(
@@ -1221,9 +1144,6 @@ function AutoParry.ValidateState(
 
 		-- Run feint function...
 		AutoParry.RunFeintFn()
-
-		-- Reset feint flag...
-		AutoParry.CanLocalPlayerFeint = false
 	end
 
 	-- Cannot parry while we are casting a spell...
@@ -1436,11 +1356,6 @@ function AutoParry:GetBuilderData(Type, Identifier)
 	-- Builder settings list
 	local BuilderSettingsList = Pascal:GetConfig().AutoParryBuilder[Type].BuilderSettingsList
 	return BuilderSettingsList[Identifier]
-end
-
-function AutoParry:OnAnimationEnded(EntityData, AnimationTrack, Animation, Player, HumanoidRootPart, Humanoid)
-	-- Handle block states for player data
-	AutoParry.EndBlockingStates(EntityData)
 end
 
 function AutoParry:OnPartInRange(Entity, Part, Player, HumanoidRootPart, Humanoid)
@@ -2335,6 +2250,29 @@ function AutoParry:OnAnimationPlayed(EntityData, AnimationTrack, Animation, Play
 		-- Start blocking state...
 		AutoParry.StartedBlocking = true
 
+		-- Spawn task...
+		task.spawn(function()
+			-- Wait until animation ends...
+			repeat
+				task.wait()
+			until not AnimationTrack.IsPlaying
+
+			-- End blocking
+			AutoParry.EndBlockFn()
+
+			-- End blocking state
+			AnimationData.StartedBlocking = false
+
+			-- Stop blocking state...
+			AutoParry.StartedBlocking = false
+
+			-- Notify user that blocking has stopped
+			AutoParry.Notify(
+				string.format("Ended blocking on animation %s(%s)", BuilderData.NickName, BuilderData.AnimationId),
+				2.0
+			)
+		end)
+
 		-- Return...
 		return
 	end
@@ -2474,14 +2412,6 @@ function AutoParry.OnFeintSoundEnd()
 	if AutoParry.SoundFeint then
 		AutoParry.SoundFeint = false
 	end
-end
-
-function AutoParry.OnLocalPlayerSwingSound()
-	AutoParry.CanLocalPlayerFeint = false
-end
-
-function AutoParry.OnLocalPlayerSwingSoundEnd()
-	AutoParry.CanLocalPlayerFeint = true
 end
 
 function AutoParry.Disconnect()
@@ -2833,19 +2763,6 @@ function AutoParry:OnEntityAdded(Entity)
 	local HumanoidRootPart = Entity:WaitForChild("HumanoidRootPart", math.huge)
 	local Animator = Humanoid:WaitForChild("Animator", math.huge)
 
-	-- If this is the local-player, connect special event(s)...
-	local Player = Players:GetPlayerFromCharacter(Entity)
-	if Player == Players.LocalPlayer then
-		local Swing1 = AutoParry.FindSound(HumanoidRootPart, "Swing1")
-		local Swing2 = AutoParry.FindSound(HumanoidRootPart, "Swing2")
-		if Swing1 or Swing2 then
-			table.insert(AutoParry.Connections, Swing1.Played:Connect(AutoParry.OnLocalPlayerSwingSound))
-			table.insert(AutoParry.Connections, Swing2.Played:Connect(AutoParry.OnLocalPlayerSwingSound))
-			table.insert(AutoParry.Connections, Swing1.Ended:Connect(AutoParry.OnLocalPlayerSwingSoundEnd))
-			table.insert(AutoParry.Connections, Swing2.Ended:Connect(AutoParry.OnLocalPlayerSwingSoundEnd))
-		end
-	end
-
 	-- Connect event to OnFeintPlayed...
 	local Feint = AutoParry.FindSound(HumanoidRootPart, "Feint")
 	if Feint then
@@ -3106,53 +3023,6 @@ function AutoParry:OnEntityAdded(Entity)
 
 					-- Call OnAnimationPlayed for AutoParryLogger...
 					AutoParryLogger:OnAnimationPlayed(Player, Entity, HumanoidRootPart, LocalPlayerData, AnimationTrack)
-
-					-- Connect event to OnAnimationEnded...
-					table.insert(
-						AutoParry.Connections,
-						AnimationTrack.Stopped:Connect(function()
-							Helper.TryAndCatch(
-								-- Try...
-								function()
-									local Humanoid = Entity:FindFirstChild("Humanoid")
-									if not Humanoid then
-										return
-									end
-
-									local HumanoidRootPart = Entity:FindFirstChild("HumanoidRootPart")
-									if not HumanoidRootPart then
-										return
-									end
-
-									local Animator = Humanoid:FindFirstChild("Animator")
-									if not Animator then
-										return
-									end
-
-									local LocalPlayerData = Helper.GetLocalPlayerWithData()
-									if not LocalPlayerData then
-										return
-									end
-
-									-- Call OnAnimationEnded...
-									AutoParry:OnAnimationEnded(
-										EntityData,
-										AnimationTrack,
-										AnimationTrack.Animation,
-										Helper.GetPlayerFromEntity(Entity),
-										HumanoidRootPart,
-										Humanoid
-									)
-								end,
-
-								-- Catch...
-								function(Error)
-									Pascal:GetLogger()
-										:Print("AutoParry (AnimationTrack.Stopped) - Caught exception: %s", Error)
-								end
-							)
-						end)
-					)
 				end,
 
 				-- Catch...
@@ -8694,19 +8564,15 @@ function Library:AddPartToInfoLogger(DataName, PartName, Distance)
 		return
 	end
 
-	if
-		getgenv().Settings.AutoParryLogging.BlockLogged
-		and getgenv().Settings.AutoParryBuilder.Part.BuilderSettingsList[PartName]
-	then
-		local BuilderData = getgenv().Settings.AutoParryBuilder.Part.BuilderSettingsList[PartName]
-		if
-			string.lower(BuilderData.PartParentName) ~= "none"
-			and string.lower(BuilderData.PartParentName) ~= ""
-			and not string.find(string.lower(Entity.Name), string.lower(BuilderData.PartParentName))
-			and string.lower(BuilderData.PartParentName) ~= "humanoid"
-		then
-			return
-		end
+	local BuilderData = getgenv().Settings.AutoParryBuilder.Part.BuilderSettingsList[PartName]
+	local IsAlreadyIn = BuilderData
+		and string.lower(BuilderData.PartParentName) ~= "none"
+		and string.lower(BuilderData.PartParentName) ~= ""
+		and string.find(string.lower(DataName), string.lower(BuilderData.PartParentName))
+		and string.lower(BuilderData.PartParentName) ~= "humanoid"
+
+	if getgenv().Settings.AutoParryLogging.BlockLogged and IsAlreadyIn then
+		return
 	end
 
 	if (#Library.InfoLoggerData.ContainerLabels + 1) > getgenv().Settings.AutoParryLogging.MaximumSize then
@@ -8731,11 +8597,12 @@ function Library:AddPartToInfoLogger(DataName, PartName, Distance)
 	}, true)
 
 	InfoContainerLabel.Text = string.format(
-		"[%s] is sending part (%s) (%.2fm away) (%s)",
+		"[%s] is sending part (%s) (%.2fm away) (%s) (%.4f)",
 		DataName,
 		PartName,
 		Distance,
-		getgenv().Settings.AutoParryBuilder.Part.BuilderSettingsList[PartName] and "AP" or "X"
+		IsAlreadyIn and "AP" or "X",
+		os.clock()
 	)
 
 	InfoContainerLabel.Visible = true
@@ -8792,12 +8659,13 @@ function Library:AddSoundDataToInfoLogger(DataName, SoundId, SoundName, Sound, D
 	}, true)
 
 	InfoContainerLabel.Text = string.format(
-		"[%s] is playing (%s) with Sound ID of %s (%.2fm away) (%s)",
+		"[%s] is playing (%s) with Sound ID of %s (%.2fm away) (%s) (%.4f)",
 		DataName,
 		SoundName,
 		SoundId,
 		Distance,
-		getgenv().Settings.AutoParryBuilder.Sound.BuilderSettingsList[SoundId] and "AP" or "X"
+		getgenv().Settings.AutoParryBuilder.Sound.BuilderSettingsList[SoundId] and "AP" or "X",
+		os.clock()
 	)
 
 	InfoContainerLabel.Visible = true
@@ -8871,14 +8739,15 @@ function Library:AddAnimationDataToInfoLogger(DataName, AnimationId, AnimationNa
 	end
 
 	InfoContainerLabel.Text = string.format(
-		"[%s] is playing (%s) with Animation ID of %s (%.2fm away) (%s) (%s) (%s)",
+		"[%s] is playing (%s) with Animation ID of %s (%.2fm away) (%s) (%s) (%s) (%.4f)",
 		DataName,
 		AnimationName,
 		AnimationId,
 		Distance,
 		TypeString,
 		TwoHandedString,
-		getgenv().Settings.AutoParryBuilder.Animation.BuilderSettingsList[AnimationId] and "AP" or "X"
+		getgenv().Settings.AutoParryBuilder.Animation.BuilderSettingsList[AnimationId] and "AP" or "X",
+		os.clock()
 	)
 
 	InfoContainerLabel.Visible = true

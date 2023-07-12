@@ -2980,19 +2980,15 @@ function Library:AddPartToInfoLogger(DataName, PartName, Distance)
 		return
 	end
 
-	if
-		getgenv().Settings.AutoParryLogging.BlockLogged
-		and getgenv().Settings.AutoParryBuilder.Part.BuilderSettingsList[PartName]
-	then
-		local BuilderData = getgenv().Settings.AutoParryBuilder.Part.BuilderSettingsList[PartName]
-		if
-			string.lower(BuilderData.PartParentName) ~= "none"
-			and string.lower(BuilderData.PartParentName) ~= ""
-			and not string.find(string.lower(Entity.Name), string.lower(BuilderData.PartParentName))
-			and string.lower(BuilderData.PartParentName) ~= "humanoid"
-		then
-			return
-		end
+	local BuilderData = getgenv().Settings.AutoParryBuilder.Part.BuilderSettingsList[PartName]
+	local IsAlreadyIn = BuilderData
+		and string.lower(BuilderData.PartParentName) ~= "none"
+		and string.lower(BuilderData.PartParentName) ~= ""
+		and string.find(string.lower(DataName), string.lower(BuilderData.PartParentName))
+		and string.lower(BuilderData.PartParentName) ~= "humanoid"
+
+	if getgenv().Settings.AutoParryLogging.BlockLogged and IsAlreadyIn then
+		return
 	end
 
 	if (#Library.InfoLoggerData.ContainerLabels + 1) > getgenv().Settings.AutoParryLogging.MaximumSize then
@@ -3017,11 +3013,12 @@ function Library:AddPartToInfoLogger(DataName, PartName, Distance)
 	}, true)
 
 	InfoContainerLabel.Text = string.format(
-		"[%s] is sending part (%s) (%.2fm away) (%s)",
+		"[%s] is sending part (%s) (%.2fm away) (%s) (%.4f)",
 		DataName,
 		PartName,
 		Distance,
-		getgenv().Settings.AutoParryBuilder.Part.BuilderSettingsList[PartName] and "AP" or "X"
+		IsAlreadyIn and "AP" or "X",
+		os.clock()
 	)
 
 	InfoContainerLabel.Visible = true
@@ -3078,12 +3075,13 @@ function Library:AddSoundDataToInfoLogger(DataName, SoundId, SoundName, Sound, D
 	}, true)
 
 	InfoContainerLabel.Text = string.format(
-		"[%s] is playing (%s) with Sound ID of %s (%.2fm away) (%s)",
+		"[%s] is playing (%s) with Sound ID of %s (%.2fm away) (%s) (%.4f)",
 		DataName,
 		SoundName,
 		SoundId,
 		Distance,
-		getgenv().Settings.AutoParryBuilder.Sound.BuilderSettingsList[SoundId] and "AP" or "X"
+		getgenv().Settings.AutoParryBuilder.Sound.BuilderSettingsList[SoundId] and "AP" or "X",
+		os.clock()
 	)
 
 	InfoContainerLabel.Visible = true
@@ -3157,14 +3155,15 @@ function Library:AddAnimationDataToInfoLogger(DataName, AnimationId, AnimationNa
 	end
 
 	InfoContainerLabel.Text = string.format(
-		"[%s] is playing (%s) with Animation ID of %s (%.2fm away) (%s) (%s) (%s)",
+		"[%s] is playing (%s) with Animation ID of %s (%.2fm away) (%s) (%s) (%s) (%.4f)",
 		DataName,
 		AnimationName,
 		AnimationId,
 		Distance,
 		TypeString,
 		TwoHandedString,
-		getgenv().Settings.AutoParryBuilder.Animation.BuilderSettingsList[AnimationId] and "AP" or "X"
+		getgenv().Settings.AutoParryBuilder.Animation.BuilderSettingsList[AnimationId] and "AP" or "X",
+		os.clock()
 	)
 
 	InfoContainerLabel.Visible = true
