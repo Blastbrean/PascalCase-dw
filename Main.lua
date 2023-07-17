@@ -26,7 +26,8 @@ local AutoParry = require("Features/AutoParry")
 
 -- Entity folder & entity handler (special)...
 local EntityFolder = nil
-local EntityHandlerObject = nil
+local EntityHandlerAddedObject = nil
+local EntityHandlerRemovedObject = nil
 
 -- Events
 local RenderEvent = require("Events/RenderEvent")
@@ -50,7 +51,8 @@ local function StartDetachFn()
 			-- Remove events...
 			if not Pascal:DebugPreventYield() then
 				RenderEventObject:Disconnect()
-				EntityHandlerObject:Disconnect()
+				EntityHandlerAddedObject:Disconnect()
+				EntityHandlerRemovedObject:Disconnect()
 				OnTeleportEventObject:Disconnect()
 
 				-- Special disconnect (see EventHandler)...
@@ -114,19 +116,21 @@ local function MainThreadFn()
 
 				-- Special event, aswell as the fact we have to do this after the start menu check and queue so we don't yield...
 				EntityFolder = Workspace:WaitForChild("Live", math.huge)
-				EntityHandlerObject = Event:New(EntityFolder.ChildAdded)
+				EntityHandlerAddedObject = Event:New(EntityFolder.ChildAdded)
+				EntityHandlerRemovedObject = Event:New(EntityFolder.ChildRemoved)
 
 				-- Start effect replicator...
 				Pascal:GetEffectReplicator():Start()
 
 				-- Connect all events...
 				RenderEventObject:Connect(RenderEvent.CallbackFn)
-				EntityHandlerObject:Connect(EntityHandler.CallbackFn)
+				EntityHandlerAddedObject:Connect(EntityHandler.AddedCallbackFn)
+				EntityHandlerRemovedObject:Connect(EntityHandler.RemovedCallbackFn)
 
 				-- EntityHandler is a special event...
 				-- We should call the CallbackFn with our current entities...
 				Helper.LoopCurrentEntities(false, EntityFolder, function(Index, Entity)
-					EntityHandler.CallbackFn(Entity)
+					EntityHandler.AddedCallbackFn(Entity)
 				end)
 
 				-- Get auto-parry workspace sounds...

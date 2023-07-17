@@ -1,6 +1,8 @@
 -- Module
 local AutoParry = {
 	EntityData = {},
+	OtherConnections = {},
+	SoundConnections = {},
 	Connections = {},
 	IsAutoParryRunning = false,
 	TimeWhenOutOfRange = nil,
@@ -75,10 +77,19 @@ function AutoParry.RunFeintFn(LocalPlayerData)
 	end
 end
 
-function AutoParry.RunDodgeFn(Entity, ShouldRollCancel, RollCancelDelay)
+function AutoParry.RunDodgeFn(Entity, ShouldRollCancel, RollCancelDelay, ShouldGoBack)
 	if Pascal:GetConfig().AutoParry.InputMethod == "KeyPress" then
 		-- Run event to roll...
 		Pascal:GetMethods().KeyPress(0x51)
+
+		-- Check if we should go back...
+		if ShouldGoBack then
+			-- Key press (InputClient -> On F press)
+			Pascal:GetMethods().KeyPress(0x53)
+
+			-- Key release (InputClient -> On F Release)
+			Pascal:GetMethods().KeyRelease(0x53)
+		end
 
 		-- Check if we should roll cancel...
 		if ShouldRollCancel then
@@ -1225,7 +1236,7 @@ function AutoParry:OnAnimationPlayed(EntityData, AnimationTrack, Animation, Play
 				end
 
 				-- Flag...
-				AutoParry.AnimationFeinted = true
+				AutoParry.AnimationFeint = true
 
 				-- It is a feint...
 				return AutoParry.OnAnimationFeint(LocalPlayerData, HumanoidRootPart, Player)
@@ -1531,8 +1542,15 @@ function AutoParry.OnAnimationFeint(LocalPlayerData, HumanoidRootPart, Player)
 		not AutoParry.CanRoll(LocalPlayerData, HumanoidRootPart, EffectReplicator)
 		and Player ~= LocalPlayerData.Player
 	then
-		-- Notify user...
-		AutoParry.Notify("Caught animation-feint, unable to dodge...", 2.0)
+		-- Wait until we can roll
+		repeat
+			Pascal:GetMethods().Wait()
+		until not AutoParry.CanRoll(LocalPlayerData, HumanoidRootPart, EffectReplicator)
+			and Player ~= LocalPlayerData.Player
+	end
+
+	-- Looks like we already caught a feint...
+	if AutoParry.SoundFeint or AutoParry.AnimationFeint then
 		return
 	end
 
@@ -1586,8 +1604,15 @@ function AutoParry.OnFeintSound(LocalPlayerData, HumanoidRootPart, Player)
 		not AutoParry.CanRoll(LocalPlayerData, HumanoidRootPart, EffectReplicator)
 		and Player ~= LocalPlayerData.Player
 	then
-		-- Notify user...
-		AutoParry.Notify("Caught sound-feint, unable to dodge...", 2.0)
+		-- Wait until we can roll
+		repeat
+			Pascal:GetMethods().Wait()
+		until not AutoParry.CanRoll(LocalPlayerData, HumanoidRootPart, EffectReplicator)
+			and Player ~= LocalPlayerData.Player
+	end
+
+	-- Looks like we already caught a feint...
+	if AutoParry.SoundFeint or AutoParry.AnimationFeint then
 		return
 	end
 
@@ -1601,7 +1626,8 @@ function AutoParry.OnFeintSound(LocalPlayerData, HumanoidRootPart, Player)
 	AutoParry.RunDodgeFn(
 		Entity,
 		Pascal:GetConfig().AutoParry.ShouldRollCancel,
-		Pascal:GetConfig().AutoParry.RollCancelDelay
+		Pascal:GetConfig().AutoParry.RollCancelDelay,
+		true
 	)
 
 	-- Notify user...
@@ -1616,9 +1642,39 @@ function AutoParry.OnFeintSoundEnd()
 end
 
 function AutoParry.Disconnect()
-	Helper.LoopLuaTable(AutoParry.Connections, function(Index, Connection)
-		Connection:Disconnect()
+	-- Disconnect, remove entity connections...
+	Helper.LoopLuaTable(AutoParry.Connections, function(Entity, Table)
+		-- Disconnect connections...
+		Helper.LoopLuaTable(Table, function(Index, Connection)
+			Connection:Disconnect()
+		end)
+
+		-- Remove entity table...
+		AutoParry.Connections[Entity] = nil
 	end)
+
+	-- Disconnect, remove other connections...
+	Helper.LoopLuaTable(AutoParry.OtherConnections, function(Index, Connection)
+		-- Disconnect connection...
+		Connection:Disconnect()
+
+		-- Remove index...
+		AutoParry.OtherConnections[Index] = nil
+	end)
+
+	-- Disconnect, remove other connections...
+	Helper.LoopLuaTable(AutoParry.SoundConnections, function(Sound, Connection)
+		-- Disconnect connection...
+		Connection:Disconnect()
+
+		-- Remove sound index...
+		AutoParry.SoundConnections[Sound] = nil
+	end)
+
+	-- Remove conenction table(s)...
+	AutoParry.Connections = nil
+	AutoParry.OtherConnections = nil
+	AutoParry.SoundConnections = nil
 end
 
 function AutoParry.FindSound(HumanoidRootPart, Name)
@@ -1638,7 +1694,7 @@ end
 function AutoParry.GetThrownProjectiles()
 	local Thrown = WorkspaceService:WaitForChild("Thrown")
 	table.insert(
-		AutoParry.Connections,
+		AutoParry.OtherConnections,
 		Thrown.DescendantAdded:Connect(function(Descendant)
 			Helper.TryAndCatch(
 				-- Try...
@@ -1804,15 +1860,157 @@ end
 
 function AutoParry.GetWorkspaceSounds()
 	table.insert(
-		AutoParry.Connections,
-		WorkspaceService.DescendantAdded:Connect(function(Descendant)
-			if typeof(Descendant) ~= "Instance" or (not Descendant:IsA("Sound")) then
-				return false
-			end
+		AutoParry.OtherConnections,
+		WorkspaceService.DescendantRemoving:Connect(function(Descendant)
+			Helper.TryAndCatch(
+				-- Try...
+				function()
+					if typeof(Descendant) ~= "Instance" or (not Descendant:IsA("Sound")) then
+						return false
+					end
 
-			table.insert(
-				AutoParry.Connections,
-				Descendant.Played:Connect(function(SoundId)
+					if not AutoParry.SoundConnections[Descendant] then
+						return
+					end
+
+					-- Disconnect his connection...
+					AutoParry.SoundConnections[Descendant]:Disconnect()
+
+					-- Remove descendant index...
+					AutoParry.SoundConnections[Descendant] = nil
+				end,
+
+				-- Catch...
+				function(Error)
+					Pascal:GetLogger()
+						:Print("AutoParry (DescendantRemoving) (%s) - Caught exception: %s", Descendant, Error)
+				end
+			)
+		end)
+	)
+
+	table.insert(
+		AutoParry.OtherConnections,
+		WorkspaceService.DescendantAdded:Connect(function(Descendant)
+			Helper.TryAndCatch(
+				-- Try...
+				function()
+					if typeof(Descendant) ~= "Instance" or (not Descendant:IsA("Sound")) then
+						return false
+					end
+
+					-- Do not allow more than one connection...
+					if AutoParry.SoundConnections[Descendant] then
+						-- Remove connection...
+						AutoParry.SoundConnections[Descendant]:Disconnect()
+
+						-- Remove entity table...
+						AutoParry.SoundConnections[Descendant] = nil
+					end
+
+					-- Create entity connection table...
+					AutoParry.SoundConnections[Descendant] = Descendant.Played:Connect(function(SoundId)
+						Helper.TryAndCatch(
+							-- Try...
+							function()
+								local LocalPlayerData = Helper.GetLocalPlayerWithData()
+								if not LocalPlayerData then
+									return
+								end
+
+								-- Dummy markers...
+								local DummyMarkerOne = false
+								local DummyMarkerTwo = false
+
+								local Entity = Descendant:FindFirstAncestorWhichIsA("Model")
+								local HumanoidRootPart = Entity and Entity:FindFirstChild("HumanoidRootPart") or nil
+								if not Entity or not HumanoidRootPart then
+									-- Create a dummy entity...
+									Entity = Descendant.Parent
+									if not Entity then
+										return
+									end
+
+									-- Create a dummy humanoid-root-part...
+									HumanoidRootPart = Instance.new("Part")
+									HumanoidRootPart.Position = LocalPlayerData.HumanoidRootPart.Position
+
+									-- Marker one...
+									DummyMarkerOne = true
+								end
+
+								local Humanoid = Entity:FindFirstChild("Humanoid")
+								if not Humanoid then
+									-- Create a dummy humanoid...
+									Humanoid = Instance.new("Humanoid")
+									Humanoid.Health = math.huge
+
+									-- Marker two...
+									DummyMarkerTwo = true
+								end
+
+								-- Call OnSoundPlayed for AutoParry...
+								AutoParry:OnSoundPlayed(nil, Descendant, nil, HumanoidRootPart, Humanoid)
+
+								-- Call OnSoundPlayed for AutoParryLogger...
+								AutoParryLogger:OnSoundPlayed(
+									nil,
+									Entity,
+									HumanoidRootPart,
+									LocalPlayerData,
+									Descendant
+								)
+
+								-- Destroy our created instances (if we created them...)
+								if DummyMarkerOne then
+									HumanoidRootPart:Destroy()
+								end
+
+								if DummyMarkerTwo then
+									Humanoid:Destroy()
+								end
+							end,
+
+							-- Catch...
+							function(Error)
+								Pascal:GetLogger()
+									:Print(
+										"AutoParry (DescendantSound.Played) (%s) - Caught exception: %s",
+										SoundId,
+										Error
+									)
+							end
+						)
+					end)
+				end,
+
+				-- Catch...
+				function(Error)
+					Pascal:GetLogger()
+						:Print("AutoParry (DescendantSoundOuter) (%s) - Caught exception: %s", SoundId, Error)
+				end
+			)
+		end)
+	)
+
+	Helper.LoopInstanceDescendants(WorkspaceService, function(Index, Descendant)
+		Helper.TryAndCatch(
+			-- Try...
+			function()
+				if typeof(Descendant) ~= "Instance" or (not Descendant:IsA("Sound")) then
+					return false
+				end
+
+				-- Do not allow more than one connection...
+				if AutoParry.SoundConnections[Descendant] then
+					-- Remove connection...
+					AutoParry.SoundConnections[Descendant]:Disconnect()
+
+					-- Remove entity table...
+					AutoParry.SoundConnections[Descendant] = nil
+				end
+
+				AutoParry.SoundConnections[Descendant] = Descendant.Played:Connect(function(SoundId)
 					Helper.TryAndCatch(
 						-- Try...
 						function()
@@ -1834,9 +2032,14 @@ function AutoParry.GetWorkspaceSounds()
 									return
 								end
 
+								-- Attempt to find something we can find a position off of...
+								local Part = Descendant:FindFirstAncestorWhichIsA("Part")
+									or Descendant:FindFirstAncestorWhichIsA("MeshPart")
+
 								-- Create a dummy humanoid-root-part...
 								HumanoidRootPart = Instance.new("Part")
-								HumanoidRootPart.Position = LocalPlayerData.HumanoidRootPart.Position
+								HumanoidRootPart.Position = Part and Part.Position
+									or LocalPlayerData.HumanoidRootPart.Position
 
 								-- Marker one...
 								DummyMarkerOne = true
@@ -1871,89 +2074,20 @@ function AutoParry.GetWorkspaceSounds()
 						-- Catch...
 						function(Error)
 							Pascal:GetLogger()
-								:Print("AutoParry (DescendantSound.Played) (%s) - Caught exception: %s", SoundId, Error)
+								:Print(
+									"AutoParry (DescendantLoopSound.Played) (%s) - Caught exception: %s",
+									SoundId,
+									Error
+								)
 						end
 					)
 				end)
-			)
-		end)
-	)
+			end,
 
-	Helper.LoopInstanceDescendants(WorkspaceService, function(Index, Descendant)
-		if typeof(Descendant) ~= "Instance" or (not Descendant:IsA("Sound")) then
-			return false
-		end
-
-		table.insert(
-			AutoParry.Connections,
-			Descendant.Played:Connect(function(SoundId)
-				Helper.TryAndCatch(
-					-- Try...
-					function()
-						local LocalPlayerData = Helper.GetLocalPlayerWithData()
-						if not LocalPlayerData then
-							return
-						end
-
-						-- Dummy markers...
-						local DummyMarkerOne = false
-						local DummyMarkerTwo = false
-
-						local Entity = Descendant:FindFirstAncestorWhichIsA("Model")
-						local HumanoidRootPart = Entity and Entity:FindFirstChild("HumanoidRootPart") or nil
-						if not Entity or not HumanoidRootPart then
-							-- Create a dummy entity...
-							Entity = Descendant.Parent
-							if not Entity then
-								return
-							end
-
-							-- Attempt to find something we can find a position off of...
-							local Part = Descendant:FindFirstAncestorWhichIsA("Part")
-								or Descendant:FindFirstAncestorWhichIsA("MeshPart")
-
-							-- Create a dummy humanoid-root-part...
-							HumanoidRootPart = Instance.new("Part")
-							HumanoidRootPart.Position = Part and Part.Position
-								or LocalPlayerData.HumanoidRootPart.Position
-
-							-- Marker one...
-							DummyMarkerOne = true
-						end
-
-						local Humanoid = Entity:FindFirstChild("Humanoid")
-						if not Humanoid then
-							-- Create a dummy humanoid...
-							Humanoid = Instance.new("Humanoid")
-							Humanoid.Health = math.huge
-
-							-- Marker two...
-							DummyMarkerTwo = true
-						end
-
-						-- Call OnSoundPlayed for AutoParry...
-						AutoParry:OnSoundPlayed(nil, Descendant, nil, HumanoidRootPart, Humanoid)
-
-						-- Call OnSoundPlayed for AutoParryLogger...
-						AutoParryLogger:OnSoundPlayed(nil, Entity, HumanoidRootPart, LocalPlayerData, Descendant)
-
-						-- Destroy our created instances (if we created them...)
-						if DummyMarkerOne then
-							HumanoidRootPart:Destroy()
-						end
-
-						if DummyMarkerTwo then
-							Humanoid:Destroy()
-						end
-					end,
-
-					-- Catch...
-					function(Error)
-						Pascal:GetLogger()
-							:Print("AutoParry (DescendantLoopSound.Played) (%s) - Caught exception: %s", SoundId, Error)
-					end
-				)
-			end)
+			-- Catch...
+			function(Error)
+				Pascal:GetLogger():Print("AutoParry (DescendantLoopOuter) (%s) - Caught exception: %s", SoundId, Error)
+			end
 		)
 	end)
 end
@@ -1966,11 +2100,43 @@ function AutoParry.OnLocalPlayerSwingSoundEnd()
 	AutoParry.IsPlayerSwinging = true
 end
 
+function AutoParry:OnEntityRemoved(Entity)
+	if not AutoParry.Connections[Entity] then
+		return
+	end
+
+	-- This entity was removed, remove his connections and his entity table...
+	Helper.LoopLuaTable(AutoParry.Connections[Entity], function(Index, Connection)
+		Connection:Disconnect()
+	end)
+
+	-- Remove entity table...
+	AutoParry.Connections[Entity] = nil
+end
+
 function AutoParry:OnEntityAdded(Entity)
 	local EntityData = AutoParry:EmplaceEntityToData(Entity)
 	local Humanoid = Entity:WaitForChild("Humanoid", math.huge)
 	local HumanoidRootPart = Entity:WaitForChild("HumanoidRootPart", math.huge)
 	local Animator = Humanoid:WaitForChild("Animator", math.huge)
+
+	if not AutoParry.Connections or not Entity then
+		return
+	end
+
+	-- Do not allow more than one connection...
+	if AutoParry.Connections[Entity] then
+		-- Remove his connections and his entity table...
+		Helper.LoopLuaTable(AutoParry.Connections[Entity], function(Index, Connection)
+			Connection:Disconnect()
+		end)
+
+		-- Remove entity table...
+		AutoParry.Connections[Entity] = nil
+	end
+
+	-- Create entity connection table...
+	AutoParry.Connections[Entity] = AutoParry.Connections[Entity] or {}
 
 	-- If this is the local-player, connect special event(s)...
 	local Player = Players:GetPlayerFromCharacter(Entity)
@@ -1978,10 +2144,10 @@ function AutoParry:OnEntityAdded(Entity)
 		local Swing1 = AutoParry.FindSound(HumanoidRootPart, "Swing1")
 		local Swing2 = AutoParry.FindSound(HumanoidRootPart, "Swing2")
 		if Swing1 or Swing2 then
-			table.insert(AutoParry.Connections, Swing1.Played:Connect(AutoParry.OnLocalPlayerSwingSound))
-			table.insert(AutoParry.Connections, Swing2.Played:Connect(AutoParry.OnLocalPlayerSwingSound))
-			table.insert(AutoParry.Connections, Swing1.Ended:Connect(AutoParry.OnLocalPlayerSwingSoundEnd))
-			table.insert(AutoParry.Connections, Swing2.Ended:Connect(AutoParry.OnLocalPlayerSwingSoundEnd))
+			table.insert(AutoParry.Connections[Entity], Swing1.Played:Connect(AutoParry.OnLocalPlayerSwingSound))
+			table.insert(AutoParry.Connections[Entity], Swing2.Played:Connect(AutoParry.OnLocalPlayerSwingSound))
+			table.insert(AutoParry.Connections[Entity], Swing1.Ended:Connect(AutoParry.OnLocalPlayerSwingSoundEnd))
+			table.insert(AutoParry.Connections[Entity], Swing2.Ended:Connect(AutoParry.OnLocalPlayerSwingSoundEnd))
 		end
 	end
 
@@ -1989,7 +2155,7 @@ function AutoParry:OnEntityAdded(Entity)
 	local Feint = AutoParry.FindSound(HumanoidRootPart, "Feint")
 	if Feint then
 		table.insert(
-			AutoParry.Connections,
+			AutoParry.Connections[Entity],
 			Feint.Played:Connect(function()
 				Helper.TryAndCatch(
 					-- Try...
@@ -2023,7 +2189,7 @@ function AutoParry:OnEntityAdded(Entity)
 		)
 
 		table.insert(
-			AutoParry.Connections,
+			AutoParry.Connections[Entity],
 			Feint.Ended:Connect(function()
 				Helper.TryAndCatch(
 					-- Try...
@@ -2042,7 +2208,7 @@ function AutoParry:OnEntityAdded(Entity)
 
 	-- Connect event(s) to OnProjectileInRange...
 	table.insert(
-		AutoParry.Connections,
+		AutoParry.Connections[Entity],
 		Entity.DescendantAdded:Connect(function(Descendant)
 			Helper.TryAndCatch(
 				-- Try...
@@ -2208,7 +2374,7 @@ function AutoParry:OnEntityAdded(Entity)
 
 	-- Connect event(s) to OnAnimationPlayed & OnAnimationEnded...
 	table.insert(
-		AutoParry.Connections,
+		AutoParry.Connections[Entity],
 		Animator.AnimationPlayed:Connect(function(AnimationTrack)
 			Helper.TryAndCatch(
 				-- Try...
